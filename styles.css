@@ -4,6 +4,10 @@
   background: #f5f7fa;
 }
 
+.config-card {
+  display: none;
+}
+
 * { box-sizing: border-box; }
 
 body {
