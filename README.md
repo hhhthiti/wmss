@@ -8,7 +8,7 @@ Aplicação web simples (HTML/CSS/JS) para operar com Supabase e gerenciar:
 - Expedição com baixa de estoque e registro em `movimentacoes`.
 - Exportação em planilha (XLSX) no fim de cada seção.
 
-## Como rodar
+## Como rodar o front
 
 Abra o `index.html` no navegador **ou** sirva com:
 
@@ -18,13 +18,28 @@ python3 -m http.server 4173
 
 Depois acesse `http://localhost:4173`.
 
-## Banco usado
+## Novo SQL do sistema (Supabase)
 
-A aplicação foi preparada para as tabelas:
+Foi adicionado o arquivo:
 
-- `estoque_area(area, sku, paletes, tipo)`
-- `movimentacoes(id, sku, tipo, paletes, created_at)`
-- `produtos(sku, fardos_por_palete)`
-- `tipos_palete(tipo, fardos_por_palete)`
+- `supabase/schema_v2.sql`
 
-As credenciais informadas já vêm preenchidas no formulário e podem ser alteradas.
+Esse script cria uma estrutura mais completa com:
+
+- tabela `areas` (cadastro de áreas),
+- tabela `tipos_palete`,
+- tabela `produtos`,
+- tabela `estoque_area` com chaves estrangeiras,
+- tabela `movimentacoes` com tipo de operação,
+- função `fn_expedir_produto(...)` para baixa segura de estoque,
+- views `vw_consulta_estoque` e `vw_totais_sku` para consultas,
+- seeds iniciais de tipos (`PL2`, `PBR`, `FARDO`) e áreas exemplo.
+
+### Como aplicar no Supabase SQL Editor
+
+1. Abra o projeto no Supabase.
+2. Entre em **SQL Editor**.
+3. Cole o conteúdo de `supabase/schema_v2.sql`.
+4. Execute o script.
+
+> Observação: o script é idempotente (usa `if not exists` e `on conflict do nothing`) para facilitar reexecução.
