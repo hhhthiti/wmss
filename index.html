@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WMSS - Controle de Estoque</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  </head>
+  <body>
+    <header>
+      <h1>Controle de Estoque por Área</h1>
+      <p>Cadastro, consulta e expedição de produtos</p>
+    </header>
+
+    <main>
+      <section class="card config-card">
+        <h2>Configuração Supabase</h2>
+        <div class="grid two-col">
+          <label>
+            Project URL
+            <input id="supabaseUrl" type="url" />
+          </label>
+          <label>
+            Publishable Key
+            <input id="supabaseKey" type="text" />
+          </label>
+        </div>
+        <button id="connectBtn">Conectar</button>
+        <p id="connectionStatus" class="status"></p>
+      </section>
+
+      <nav class="tabs">
+        <button class="tab-btn active" data-tab="cadastro">Cadastro</button>
+        <button class="tab-btn" data-tab="consulta">Consulta</button>
+        <button class="tab-btn" data-tab="expedicao">Expedição</button>
+      </nav>
+
+      <section id="cadastro" class="tab-content active">
+        <div class="card">
+          <h2>Cadastrar produto em área</h2>
+          <form id="estoqueForm" class="grid form-grid">
+            <label>Área <input name="area" required placeholder="Ex.: B02" /></label>
+            <label>SKU <input name="sku" type="number" required placeholder="Ex.: 20104409" /></label>
+            <label>Tipo
+              <select name="tipo" required>
+                <option value="PL2">PL2</option>
+                <option value="PBR">PBR</option>
+                <option value="FARDO">FARDO</option>
+              </select>
+            </label>
+            <label>Paletes <input name="paletes" type="number" min="1" required /></label>
+            <div class="actions">
+              <button type="submit">Salvar / Atualizar</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <h2>Cadastro de produto (SKU)</h2>
+          <form id="produtoForm" class="grid form-grid">
+            <label>SKU <input name="sku" type="number" required /></label>
+            <label>Fardos por palete <input name="fardos_por_palete" type="number" min="1" required /></label>
+            <div class="actions"><button type="submit">Salvar produto</button></div>
+          </form>
+        </div>
+
+        <div class="card">
+          <h2>Estoque por área</h2>
+          <div class="table-wrapper">
+            <table id="estoqueTable">
+              <thead>
+                <tr><th>Área</th><th>SKU</th><th>Tipo</th><th>Paletes</th><th>Ações</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <button id="exportCadastroBtn" class="secondary">Exportar planilha (estoque + totais SKU)</button>
+        </div>
+      </section>
+
+      <section id="consulta" class="tab-content">
+        <div class="card">
+          <h2>Consulta: onde estão os produtos</h2>
+          <div class="table-wrapper">
+            <table id="consultaAreaTable">
+              <thead><tr><th>Área</th><th>SKU</th><th>Tipo</th><th>Quantidade</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Totais por SKU (todas as áreas)</h2>
+          <div class="table-wrapper">
+            <table id="totaisSkuTable">
+              <thead><tr><th>SKU</th><th>Total Paletes</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <button id="exportConsultaBtn" class="secondary">Exportar planilha (consulta + totais SKU)</button>
+        </div>
+      </section>
+
+      <section id="expedicao" class="tab-content">
+        <div class="card">
+          <h2>Expedir (retirar do estoque)</h2>
+          <form id="expedicaoForm" class="grid form-grid">
+            <label>Área <input name="area" required placeholder="Ex.: B02" /></label>
+            <label>SKU <input name="sku" type="number" required /></label>
+            <label>Tipo
+              <select name="tipo" required>
+                <option value="PL2">PL2</option>
+                <option value="PBR">PBR</option>
+                <option value="FARDO">FARDO</option>
+              </select>
+            </label>
+            <label>Quantidade para expedir <input name="paletes" type="number" min="1" required /></label>
+            <div class="actions"><button type="submit" class="danger">Expedir / Dar baixa</button></div>
+          </form>
+        </div>
+
+        <div class="card">
+          <h2>Histórico de expedição</h2>
+          <div class="table-wrapper">
+            <table id="movimentacoesTable">
+              <thead><tr><th>Data</th><th>SKU</th><th>Tipo</th><th>Qtd expedida</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <button id="exportExpedicaoBtn" class="secondary">Exportar planilha (expedidas + totais SKU expedido)</button>
+        </div>
+      </section>
+
+      <p id="feedback" class="status"></p>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
