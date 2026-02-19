@@ -67,6 +67,24 @@
         </div>
 
         <div class="card">
+          <h2>Importar planilha (incluir / apagar posições)</h2>
+          <p class="helper-text">
+            Colunas esperadas na planilha: <strong>area</strong>, <strong>sku</strong>, <strong>tipo</strong>,
+            <strong>paletes</strong> e opcional <strong>acao</strong>.
+            <br />
+            Se <strong>acao</strong> for <strong>APAGAR</strong>/<strong>EXCLUIR</strong>/<strong>DELETE</strong>, o registro será removido.
+            Caso contrário, será feito incluir/atualizar.
+          </p>
+          <form id="importForm" class="grid form-grid">
+            <label>
+              Arquivo (.xlsx/.xls/.csv)
+              <input id="importFile" type="file" accept=".xlsx,.xls,.csv" required />
+            </label>
+            <div class="actions"><button type="submit">Processar planilha</button></div>
+          </form>
+        </div>
+
+        <div class="card">
           <h2>Estoque por área</h2>
           <div class="table-wrapper">
             <table id="estoqueTable">
@@ -138,5 +156,4 @@
 
     <script src="app.js"></script>
   </body>
-  <footer> <p>✨ by Thiago 2026 ✨</p> </footer>
 </html>
