@@ -113,3 +113,5 @@ th, td {
 
 .status.error { color: #b93636; }
 .status.success { color: #2a7f46; }
+
+<style> footer { background: linear-gradient(135deg, #ff00cc, #3333ff); color: white; text-align: center; padding: 20px; font-family: 'Poppins', sans-serif; font-size: 18px; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; box-shadow: 0 -4px 10px rgba(0,0,0,0.3); position: fixed; bottom: 0; width: 100%; } footer p { margin: 0; animation: glow 2s infinite alternate; } @keyframes glow { from { text-shadow: 0 0 5px #fff, 0 0 10px #ff00cc, 0 0 20px #3333ff; } to { text-shadow: 0 0 10px #fff, 0 0 20px #ff00cc, 0 0 40px #3333ff; } } </style>
