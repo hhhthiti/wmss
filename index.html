@@ -98,28 +98,45 @@
         </div>
       </section>
 
-      <section id="consulta" class="tab-content">
-        <div class="card">
-          <h2>Consulta: onde estão os produtos</h2>
-          <div class="table-wrapper">
-            <table id="consultaAreaTable">
-              <thead><tr><th>Área</th><th>SKU</th><th>Tipo</th><th>Quantidade</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
+    <section id="consulta" class="tab-content">
+  <div class="card">
+    <h2>Consulta: onde estão os produtos</h2>
+    
+    <div class="search-container" style="margin-bottom: 20px;">
+      <input 
+        type="text" 
+        id="searchInput" 
+        placeholder="🔍 Buscar por Área ou SKU..." 
+        style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #ddd;"
+      />
+    </div>
 
-        <div class="card">
-          <h2>Totais por SKU (todas as áreas)</h2>
-          <div class="table-wrapper">
-            <table id="totaisSkuTable">
-              <thead><tr><th>SKU</th><th>Total Paletes</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-          <button id="exportConsultaBtn" class="secondary">Exportar planilha (consulta + totais SKU)</button>
-        </div>
-      </section>
+    <div class="table-wrapper">
+      <table id="consultaAreaTable">
+        <thead>
+          <tr>
+            <th>Área</th>
+            <th>SKU</th>
+            <th>Tipo</th>
+            <th>Quantidade</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Totais por SKU (todas as áreas)</h2>
+    <div class="table-wrapper">
+      <table id="totaisSkuTable">
+        <thead><tr><th>SKU</th><th>Total Paletes</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <button id="exportConsultaBtn" class="secondary">Exportar planilha (consulta + totais SKU)</button>
+  </div>
+</section>
 
       <section id="expedicao" class="tab-content">
         <div class="card">
