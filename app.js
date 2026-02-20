@@ -192,6 +192,25 @@ async function handleEstoqueSubmit(event) {
   }
 }
 
+// Lógica de Busca em Tempo Real
+document.getElementById('searchInput').addEventListener('keyup', function() {
+    const searchTerm = this.value.toLowerCase();
+    const tableRows = document.querySelectorAll('#consultaAreaTable tbody tr');
+
+    tableRows.forEach(row => {
+        const areaText = row.cells[0].textContent.toLowerCase();
+        const skuText = row.cells[1].textContent.toLowerCase();
+
+        // Verifica se o termo buscado está na coluna Área ou na coluna SKU
+        if (areaText.includes(searchTerm) || skuText.includes(searchTerm)) {
+            row.style.display = "";
+        } else {
+            row.style.display = "none";
+        }
+    });
+});
+
+
 async function handleProdutoSubmit(event) {
   event.preventDefault();
   if (!supabaseClient) return showFeedback('Conecte ao Supabase primeiro.', 'error');
