@@ -111,6 +111,14 @@ th, td {
   font-weight: 600;
 }
 
+.search-container input:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 5px rgba(0,123,255,0.5);
+    transition: all 0.3s ease;
+}
+
+
 .status.error { color: #b93636; }
 .status.success { color: #2a7f46; }
 
