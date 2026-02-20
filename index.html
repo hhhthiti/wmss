@@ -84,17 +84,29 @@
           </form>
         </div>
 
-        <div class="card">
-          <h2>Estoque por área</h2>
-          <div class="table-wrapper">
-            <table id="estoqueTable">
-              <thead>
-                <tr><th>Área</th><th>SKU</th><th>Tipo</th><th>Paletes</th><th>Ações</th></tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-          <button id="exportCadastroBtn" class="secondary">Exportar planilha (estoque + totais SKU)</button>
+       <div class="card">
+  <h2>Estoque por área</h2>
+  
+  <div class="search-container" style="margin-bottom: 15px;">
+    <input 
+      type="text" 
+      id="searchCadastroInput" 
+      placeholder="🔍 Filtrar estoque por Área ou SKU..." 
+      style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #ccc;"
+    />
+  </div>
+
+  <div class="table-wrapper">
+    <table id="estoqueTable">
+      <thead>
+        <tr><th>Área</th><th>SKU</th><th>Tipo</th><th>Paletes</th><th>Ações</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <button id="exportCadastroBtn" class="secondary">Exportar planilha (estoque + totais SKU)</button>
+</div>
+
         </div>
       </section>
 
