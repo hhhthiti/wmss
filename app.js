@@ -268,6 +268,25 @@ async function handleExpedicaoSubmit(event) {
       if (updateError) throw updateError;
     }
 
+// Filtro para a Tabela de Estoque (Aba Cadastro)
+document.getElementById('searchCadastroInput').addEventListener('keyup', function() {
+    const term = this.value.toLowerCase();
+    const rows = document.querySelectorAll('#estoqueTable tbody tr');
+
+    rows.forEach(row => {
+        // Coluna 0 é Área, Coluna 1 é SKU
+        const area = row.cells[0].textContent.toLowerCase();
+        const sku = row.cells[1].textContent.toLowerCase();
+
+        if (area.includes(term) || sku.includes(term)) {
+            row.style.display = "";
+        } else {
+            row.style.display = "none";
+        }
+    });
+});
+
+
     const { error: movError } = await supabaseClient
       .from('movimentacoes')
       .insert({ sku, tipo, paletes });
