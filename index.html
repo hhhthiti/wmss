@@ -3,100 +3,149 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>WMSS - JSL Logística</title>
+    <title>WMSS - Controle de Estoque</title>
     <link rel="stylesheet" href="styles.css" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
     <header>
-        <h1>Controle de Estoque JSL</h1>
-        <p>Operação Thiago - Gestão de Áreas</p>
+        <h1>Controle de Estoque por Área</h1>
+        <p>Cadastro, consulta e expedição de produtos</p>
     </header>
-
     <main>
+        <section class="card config-card">
+            <h2>Configuração Supabase</h2>
+            <div class="grid two-col">
+                <label> Project URL <input id="supabaseUrl" type="url" placeholder="https://xyz.supabase.co" /> </label>
+                <label> Publishable Key <input id="supabaseKey" type="text" placeholder="Sua chave anon" /> </label>
+            </div>
+            <button id="connectBtn">Conectar</button>
+            <p id="connectionStatus" class="status"></p>
+        </section>
+
         <nav class="tabs">
-            <button class="tab-btn active" data-tab="cadastro">Cadastro/Mapa</button>
+            <button class="tab-btn active" data-tab="cadastro">Cadastro</button>
+            <button class="tab-btn" data-tab="consulta">Consulta</button>
             <button class="tab-btn" data-tab="expedicao">Expedição</button>
         </nav>
 
         <section id="cadastro" class="tab-content active">
             <div class="card">
-                <h2>Entrada de Material</h2>
+                <h2>Cadastrar produto em área</h2>
                 <form id="estoqueForm" class="grid form-grid">
-                    <label>Área <input name="area" required placeholder="Ex: COLUNA A" /></label>
-                    <label>SKU <input name="sku" type="number" required /></label>
-                    <label>Tipo 
-                        <select name="tipo">
-                            <option value="PL2">PL2 (Tissue)</option>
-                            <option value="PBR">PBR (Lonil)</option>
-                            <option value="FARDO">FARDO (Geral)</option>
-                        </select>
-                    </label>
-                    <label>Qtd Paletes <input name="paletes" type="number" required /></label>
-                    <button type="submit">Salvar no Sistema</button>
+                    <label>Área <input name="area" required placeholder="Ex.: B02" /></label>
+                    <label>SKU <input name="sku" type="number" required placeholder="Ex.: 20104409" /></label>
+                    <label>Tipo <select name="tipo" required>
+                        <option value="PL2">PL2</option>
+                        <option value="PBR">PBR</option>
+                        <option value="FARDO">FARDO</option>
+                    </select> </label>
+                    <label>Paletes <input name="paletes" type="number" min="1" required /></label>
+                    <div class="actions">
+                        <button type="submit">Salvar / Atualizar</button>
+                    </div>
                 </form>
             </div>
 
-            <div style="margin: 20px 0;">
-                <button id="visualizarLayoutBtn" style="background: #2a7f46; width: 100%; padding: 15px; font-weight: bold;">
-                    🗺️ ABRIR PLANTA VISUAL DO ARMAZÉM
-                </button>
+            <div class="card">
+                <h2>Importar Planilha</h2>
+                <form id="importForm" class="grid form-grid">
+                    <input id="importFile" type="file" accept=".xlsx,.xls,.csv" required />
+                    <div class="actions"><button type="submit">Processar planilha</button></div>
+                </form>
             </div>
 
             <div class="card">
-                <h2>Lista de Estoque Atual</h2>
-                <table id="estoqueTable">
-                    <thead>
-                        <tr><th>Área</th><th>SKU</th><th>Tipo</th><th>Paletes</th><th>Ações</th></tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
+                <h2>Estoque por área</h2>
+                <div class="search-container" style="margin-bottom: 15px;">
+                    <input type="text" id="searchCadastroInput" placeholder="🔍 Filtrar estoque por Área ou SKU..." style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #ccc;" />
+                </div>
+                <div class="table-wrapper">
+                    <table id="estoqueTable">
+                        <thead>
+                            <tr><th>Área</th><th>SKU</th><th>Tipo</th><th>Paletes</th><th>Ações</th></tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <div style="display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap;">
+                    <button id="exportCadastroBtn" class="secondary">Exportar planilha completa</button>
+                    <button id="visualizarLayoutBtn" class="secondary" style="background: #2a7f46;">📦 Visualizar Layout (Cubículos)</button>
+                </div>
+            </div>
+        </section>
+
+        <section id="consulta" class="tab-content">
+            <div class="card">
+                <h2>Mapa de Separação</h2>
+                <div class="grid form-grid">
+                    <label>SKU <input id="mapSku" type="number" /></label>
+                    <label>Fardos necessários <input id="mapQtd" type="number" /></label>
+                    <div class="actions">
+                        <button type="button" id="addMapaBtn">Adicionar ao mapa</button>
+                    </div>
+                </div>
+                <div class="table-wrapper">
+                    <table id="mapaTable">
+                        <thead>
+                            <tr><th>SKU</th><th>Fardos</th><th>Ações</th></tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <button type="button" id="gerarMapaBtn" class="secondary">Gerar mapa (PDF)</button>
+            </div>
+            
+            <div class="card">
+                <h2>Onde estão os produtos</h2>
+                <input type="text" id="searchInput" placeholder="🔍 Buscar por Área ou SKU..." style="width: 100%; padding: 12px; margin-bottom: 20px; border-radius: 8px; border: 1px solid #ddd;" />
+                <div class="table-wrapper">
+                    <table id="consultaAreaTable">
+                        <thead>
+                            <tr><th>Área</th><th>SKU</th><th>Tipo</th><th>Quantidade</th></tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
             </div>
         </section>
 
         <section id="expedicao" class="tab-content">
             <div class="card">
-                <h2>Dar Baixa (Saída)</h2>
+                <h2>Expedir (Baixa no Estoque)</h2>
                 <form id="expedicaoForm" class="grid form-grid">
                     <label>Área <input name="area" required /></label>
                     <label>SKU <input name="sku" type="number" required /></label>
-                    <label>Quantidade <input name="paletes" type="number" required /></label>
-                    <button type="submit" class="danger">Confirmar Saída</button>
+                    <label>Tipo <select name="tipo" required>
+                        <option value="PL2">PL2</option>
+                        <option value="PBR">PBR</option>
+                        <option value="FARDO">FARDO</option>
+                    </select> </label>
+                    <label>Quantidade <input name="paletes" type="number" min="1" required /></label>
+                    <div class="actions"><button type="submit" class="danger">Confirmar Saída</button></div>
                 </form>
             </div>
         </section>
 
         <div id="layoutContainer" class="layout-container hidden">
             <div class="layout-header">
-                <h2>Mapa Estratégico de Ocupação</h2>
+                <h2>Layout do Estoque (Cubículos)</h2>
                 <div style="display: flex; gap: 10px;">
-                    <button id="fecharLayoutBtn" class="danger">Fechar Mapa</button>
+                    <button id="exportLayoutPdfBtn" class="secondary">Exportar PDF</button>
+                    <button id="fecharLayoutBtn" class="danger">Fechar</button>
                 </div>
             </div>
-
-            <div class="legenda">
-                <span class="leg-item"><i style="background: #e9ecef; border: 1px solid #ccc;"></i> Vazio</span>
-                <span class="leg-item"><i style="background: #1f4d8f;"></i> Tissue (PL2)</span>
-                <span class="leg-item"><i style="background: #2a7f46;"></i> Lonil (PBR)</span>
-                <span class="leg-item"><i style="background: #6c757d;"></i> Outros</span>
-            </div>
-
-            <div class="planta-grid">
-                <div id="setor-tissue" class="setor-lateral"><h3>TISSUE</h3><div class="vagas"></div></div>
-                <div id="setor-a" class="corredor"><h3>COLUNA A</h3><div class="vagas"></div></div>
-                <div id="setor-b" class="corredor"><h3>COLUNA B</h3><div class="vagas"></div></div>
-                <div id="setor-c" class="corredor"><h3>COLUNA C</h3><div class="vagas"></div></div>
-                <div id="setor-lonil" class="setor-lateral"><h3>LONIL</h3><div class="vagas"></div></div>
-            </div>
+            <div id="layoutGrid" class="layout-grid"></div>
         </div>
+
+        <p id="feedback" class="status"></p>
     </main>
 
-    <footer class="footer-estatico">
-        <p>JSL LOGÍSTICA - SISTEMA DE APOIO OPERACIONAL - THIAGO</p>
+    <footer>
+        <p>Logística JSL - Operação Thiago</p>
     </footer>
-
-    <p id="feedback" class="status"></p>
 
     <script src="app.js"></script>
 </body>
