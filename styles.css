@@ -76,6 +76,62 @@ th, td { border-bottom: 1px solid #e1e6eb; padding: 0.55rem; text-align: left; }
     padding: 5px; border-left: 3px solid #2a7f46; border-radius: 3px;
 }
 
+/* Layout da Planta Visual */
+.planta-grid {
+    display: flex;
+    justify-content: space-around;
+    gap: 20px;
+    padding: 20px;
+    background: #fff;
+    border-radius: 12px;
+}
+
+.setor-lateral, .corredor {
+    background: #f8f9fa;
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    padding: 10px;
+    min-width: 150px;
+    text-align: center;
+}
+
+.vagas {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr); /* 2 paletes por linha na visualização */
+    gap: 5px;
+    margin-top: 10px;
+}
+
+/* Quadrado de cada palete */
+.vaga-slot {
+    width: 100%;
+    height: 40px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+/* Cores por Material */
+.vazio { background-color: #e9ecef; color: #666; }
+.material-tissue { background-color: #1f4d8f !important; } /* Azul JSL */
+.material-lonil { background-color: #2a7f46 !important; }  /* Verde */
+.material-geral { background-color: #6c757d !important; }  /* Cinza Escuro */
+
+/* Legenda */
+.legenda { display: flex; gap: 15px; margin-bottom: 15px; background: white; padding: 10px; border-radius: 8px; justify-content: center; }
+.leg-item { display: flex; align-items: center; gap: 5px; font-size: 14px; }
+.leg-item i { width: 15px; height: 15px; border-radius: 3px; display: inline-block; }
+.cor-vazio { background: #e9ecef; border: 1px solid #ccc; }
+.cor-tissue { background: #1f4d8f; }
+.cor-lonil { background: #2a7f46; }
+.cor-geral { background: #6c757d; }
+
 footer {
     background: linear-gradient(135deg, #1f4d8f, #e60000);
     color: white; text-align: center; padding: 15px;
