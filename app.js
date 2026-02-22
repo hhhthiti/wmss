@@ -1,8 +1,15 @@
+/**
+ * WMSS - Controle de Estoque JSL
+ * Desenvolvido por Thiago
+ */
+
+// 1. CONFIGURAÇÕES INICIAIS E CREDENCIAIS
 const defaultConfig = {
     url: 'https://qfjghplxbtogshfjkawx.supabase.co',
     key: 'sb_publishable_rIcKdaflOvJ0DLTJDcOrxA_bpTGG2hA'
 };
 
+// 2. MAPEAMENTO DE ELEMENTOS DA INTERFACE (DOM)
 const el = {
     supabaseUrl: document.getElementById('supabaseUrl'),
     supabaseKey: document.getElementById('supabaseKey'),
@@ -19,7 +26,7 @@ const el = {
     exportCadastroBtn: document.getElementById('exportCadastroBtn'),
     exportConsultaBtn: document.getElementById('exportConsultaBtn'),
     exportExpedicaoBtn: document.getElementById('exportExpedicaoBtn'),
-    // Elementos do Mapa
+    // Elementos da funcionalidade de Mapa de Separação
     mapSku: document.getElementById('mapSku'),
     mapQtd: document.getElementById('mapQtd'),
     mapaTableBody: document.querySelector('#mapaTable tbody'),
@@ -27,25 +34,31 @@ const el = {
     gerarMapaBtn: document.getElementById('gerarMapaBtn')
 };
 
+// 3. VARIÁVEIS DE ESTADO (CACHE)
 let supabaseClient;
 let cache = { estoque: [], movimentacoes: [] };
-let mapaItens = []; // Itens temporários para o PDF
+let mapaItens = []; // Lista temporária de SKUs para o PDF
 
+// Define valores padrão nos campos de configuração
 el.supabaseUrl.value = defaultConfig.url;
 el.supabaseKey.value = defaultConfig.key;
 
-// --- UTILITÁRIOS ---
+// --- FUNÇÕES UTILITÁRIAS ---
+
+// Exibe status de conexão ou erros
 function setStatus(target, message, type = '') {
     if (!target) return;
     target.textContent = message;
     target.className = `status ${type}`.trim();
 }
 
+// Exibe mensagens de feedback temporárias no rodapé
 function showFeedback(message, type = 'success') {
     setStatus(el.feedback, message, type);
 }
 
-// --- CONEXÃO ---
+// --- LOGICA DE CONEXÃO COM O BANCO ---
+
 function createClient() {
     const url = el.supabaseUrl.value.trim();
     const key = el.supabaseKey.value.trim();
@@ -53,12 +66,14 @@ function createClient() {
         setStatus(el.connectionStatus, 'Informe URL e chave.', 'error');
         return;
     }
+    // Inicializa o cliente Supabase
     supabaseClient = window.supabase.createClient(url, key);
     setStatus(el.connectionStatus, 'Conectado ao Supabase.', 'success');
-    loadAll();
+    loadAll(); // Carrega os dados após conectar
 }
 
-// --- CARREGAMENTO DE DADOS ---
+// --- CARREGAMENTO E SINCRONIZAÇÃO ---
+
 async function loadEstoque() {
     const { data, error } = await supabaseClient
         .from('estoque_area')
@@ -67,8 +82,8 @@ async function loadEstoque() {
 
     if (error) throw error;
     cache.estoque = data ?? [];
-    renderEstoque();
-    renderConsulta();
+    renderEstoque(); // Atualiza tabela de cadastro
+    renderConsulta(); // Atualiza tabela de consulta e totais
 }
 
 async function loadMovimentacoes() {
@@ -80,20 +95,21 @@ async function loadMovimentacoes() {
 
     if (error) throw error;
     cache.movimentacoes = data ?? [];
-    renderMovimentacoes();
+    renderMovimentacoes(); // Atualiza histórico de expedição
 }
 
 async function loadAll() {
     if (!supabaseClient) return;
     try {
         await Promise.all([loadEstoque(), loadMovimentacoes()]);
-        showFeedback('Dados sincronizados.');
+        showFeedback('Dados sincronizados com sucesso.');
     } catch (error) {
         showFeedback(`Erro ao carregar: ${error.message}`, 'error');
     }
 }
 
-// --- RENDERIZAÇÃO ---
+// --- RENDERIZAÇÃO DE TABELAS ---
+
 function renderEstoque() {
     el.estoqueTableBody.innerHTML = '';
     cache.estoque.forEach((row) => {
@@ -109,17 +125,21 @@ function renderEstoque() {
             </td>
         `;
 
+        // Evento de Editar: Preenche o formulário lá no topo
         tr.querySelector('.edit-btn').addEventListener('click', () => {
             el.estoqueForm.area.value = row.area;
             el.estoqueForm.sku.value = row.sku;
             el.estoqueForm.tipo.value = row.tipo;
             el.estoqueForm.paletes.value = row.paletes;
-            window.scrollTo(0,0);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         });
 
+        // Evento de Excluir posição
         tr.querySelector('.delete-btn').addEventListener('click', async () => {
             if (!confirm(`Excluir SKU ${row.sku} da área ${row.area}?`)) return;
-            const { error } = await supabaseClient.from('estoque_area').delete().match({ area: row.area, sku: row.sku, tipo: row.tipo });
+            const { error } = await supabaseClient.from('estoque_area')
+                .delete()
+                .match({ area: row.area, sku: row.sku, tipo: row.tipo });
             if (!error) loadEstoque();
         });
 
@@ -135,7 +155,7 @@ function renderConsulta() {
         el.consultaAreaBody.appendChild(tr);
     });
 
-    // Renderiza Totais
+    // Calcula e renderiza os totais agrupados por SKU
     const totals = cache.estoque.reduce((acc, row) => {
         acc[row.sku] = (acc[row.sku] || 0) + Number(row.paletes);
         return acc;
@@ -158,11 +178,12 @@ function renderMovimentacoes() {
     });
 }
 
-// --- MAPA DE SEPARAÇÃO (PDF) ---
+// --- SISTEMA DO MAPA DE SEPARAÇÃO (PDF) ---
+
 function adicionarItemMapa() {
-    const sku = Number(el.mapSku.value);
+    const sku = el.mapSku.value.trim();
     const qtd = Number(el.mapQtd.value);
-    if (!sku || !qtd) return alert("Preencha SKU e Qtd");
+    if (!sku || !qtd) return alert("Preencha o SKU e a Quantidade!");
     
     mapaItens.push({ sku, qtd });
     renderMapaTabela();
@@ -173,47 +194,96 @@ function renderMapaTabela() {
     el.mapaTableBody.innerHTML = '';
     mapaItens.forEach((item, index) => {
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${item.sku}</td><td>${item.qtd}</td><td><button onclick="removerItemMapa(${index})">Remover</button></td>`;
+        tr.innerHTML = `<td>${item.sku}</td><td>${item.qtd}</td><td><button class="danger" onclick="removerItemMapa(${index})">Remover</button></td>`;
         el.mapaTableBody.appendChild(tr);
     });
 }
 
+// Tornar global para o botão 'remover' funcionar no HTML gerado
 window.removerItemMapa = (index) => {
     mapaItens.splice(index, 1);
     renderMapaTabela();
 };
 
+/**
+ * GERAÇÃO DO PDF ESTILIZADO JSL
+ * Regras: Somente 2 posições por SKU, Logo JSL, Assinatura Thiago
+ */
 function gerarMapaPDF() {
-    if (mapaItens.length === 0) return alert("Mapa vazio!");
+    if (mapaItens.length === 0) return alert("O mapa está vazio!");
+    
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
     let y = 20;
 
-    doc.setFontSize(16).text("MAPA DE SEPARAÇÃO", 10, y);
-    y += 10;
+    // --- Cabeçalho Estilizado ---
+    doc.setFillColor(230, 0, 0); // Vermelho JSL
+    doc.rect(0, 0, pageWidth, 25, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(22);
+    doc.text("JSL", 10, 17);
+    doc.setFontSize(12);
+    doc.text("LOGÍSTICA - MAPA DE SEPARAÇÃO", 40, 17);
 
-    mapaItens.forEach(item => {
-        doc.setFontSize(12).setFont(undefined, 'bold').text(`SKU: ${item.sku} | Fardos: ${item.qtd}`, 10, y);
-        y += 7;
-        doc.setFont(undefined, 'normal');
+    y = 40;
 
-        const locais = cache.estoque.filter(e => e.sku == item.sku);
+    // --- Lista de Itens ---
+    mapaItens.forEach((item, index) => {
+        // Título do SKU
+        doc.setTextColor(0, 0, 0);
+        doc.setFontSize(12);
+        doc.setFont("helvetica", "bold");
+        doc.text(`${index + 1}. SKU: ${item.sku} | NECESSÁRIO: ${item.qtd} fardos`, 10, y);
+        y += 8;
+
+        // Filtragem: Pega apenas as 2 primeiras áreas onde tem esse SKU
+        const locais = cache.estoque
+            .filter(e => String(e.sku) === String(item.sku))
+            .sort((a, b) => a.area.localeCompare(b.area))
+            .slice(0, 2); // LIMITE DE 2 POSIÇÕES
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        
         if (locais.length === 0) {
-            doc.text("   (Sem estoque registrado)", 15, y);
-            y += 6;
+            doc.setTextColor(150, 150, 150);
+            doc.text("   (Produto não encontrado no estoque atual)", 15, y);
+            y += 8;
         } else {
             locais.forEach(l => {
-                doc.text(`   Área: ${l.area} -> ${l.paletes} paletes (${l.tipo})`, 15, y);
+                doc.setTextColor(0, 0, 0);
+                doc.text(`   ÁREA: ${l.area}  |  QUANTIDADE: ${l.paletes} paletes (${l.tipo})`, 15, y);
                 y += 6;
             });
+            y += 4;
         }
-        y += 4;
-        if (y > 280) { doc.addPage(); y = 20; }
+
+        // Linha divisória fina
+        doc.setDrawColor(200, 200, 200);
+        doc.line(10, y, pageWidth - 10, y);
+        y += 10;
+
+        // Controle de quebra de página
+        if (y > 270) { doc.addPage(); y = 20; }
     });
-    doc.save("mapa_separacao.pdf");
+
+    // --- Rodapé JSL + Assinatura ---
+    doc.setFontSize(8);
+    doc.setTextColor(150, 150, 150);
+    const dataHora = new Date().toLocaleString();
+    doc.text(`Gerado em: ${dataHora}`, 10, pageHeight - 10);
+    
+    doc.setFont("helvetica", "italic");
+    doc.text("by thiago", pageWidth - 25, pageHeight - 10);
+
+    doc.save(`Mapa_Separacao_JSL.pdf`);
 }
 
-// --- FORMULÁRIOS ---
+// --- PROCESSAMENTO DE FORMULÁRIOS ---
+
 async function handleEstoqueSubmit(e) {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -224,7 +294,11 @@ async function handleEstoqueSubmit(e) {
         paletes: Number(fd.get('paletes'))
     };
     const { error } = await supabaseClient.from('estoque_area').upsert(payload);
-    if (!error) { showFeedback("Salvo!"); e.target.reset(); loadEstoque(); }
+    if (!error) { 
+        showFeedback("Posição salva com sucesso!"); 
+        e.target.reset(); 
+        loadEstoque(); 
+    }
 }
 
 async function handleExpedicaoSubmit(e) {
@@ -235,12 +309,14 @@ async function handleExpedicaoSubmit(e) {
     const paletes = Number(fd.get('paletes'));
     const tipo = fd.get('tipo').toUpperCase();
 
-    // Lógica de baixa... (simplificada para o exemplo)
+    // Validação de saldo no cache antes de enviar ao banco
     const item = cache.estoque.find(i => i.area === area && i.sku === sku && i.tipo === tipo);
-    if (!item || item.paletes < paletes) return showFeedback("Estoque insuficiente", "error");
+    if (!item || item.paletes < paletes) return showFeedback("Estoque insuficiente nesta área!", "error");
 
     const novoSaldo = item.paletes - paletes;
     let res;
+
+    // Se o saldo zerar, deleta a linha. Se sobrar, atualiza.
     if (novoSaldo === 0) {
         res = await supabaseClient.from('estoque_area').delete().match({ area, sku, tipo });
     } else {
@@ -248,14 +324,16 @@ async function handleExpedicaoSubmit(e) {
     }
 
     if (!res.error) {
+        // Registra a saída no histórico de movimentações
         await supabaseClient.from('movimentacoes').insert({ sku, tipo, paletes });
-        showFeedback("Expedição concluída");
+        showFeedback("Expedição realizada com sucesso!");
         e.target.reset();
         loadAll();
     }
 }
 
-// --- FILTROS ---
+// --- SISTEMA DE BUSCA (FILTROS) ---
+
 function setupSearch() {
     const filterFn = (inputId, tableId) => {
         const input = document.getElementById(inputId);
@@ -263,6 +341,7 @@ function setupSearch() {
         input.addEventListener('keyup', () => {
             const val = input.value.toLowerCase();
             document.querySelectorAll(`#${tableId} tbody tr`).forEach(tr => {
+                // Filtra verificando se o texto da linha contém o termo buscado
                 tr.style.display = tr.innerText.toLowerCase().includes(val) ? '' : 'none';
             });
         });
@@ -271,9 +350,10 @@ function setupSearch() {
     filterFn('searchInput', 'consultaAreaTable');
 }
 
-// --- INICIALIZAÇÃO ---
+// --- INICIALIZAÇÃO DA APLICAÇÃO ---
+
 function init() {
-    // Tabs
+    // Lógica das Abas (Navegação)
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('.tab-btn, .tab-content').forEach(x => x.classList.remove('active'));
@@ -282,14 +362,16 @@ function init() {
         });
     });
 
+    // Registro de Eventos dos Botões e Formulários
     el.connectBtn.addEventListener('click', createClient);
     el.estoqueForm.addEventListener('submit', handleEstoqueSubmit);
     el.expedicaoForm.addEventListener('submit', handleExpedicaoSubmit);
     el.addMapaBtn.addEventListener('click', adicionarItemMapa);
     el.gerarMapaBtn.addEventListener('click', gerarMapaPDF);
     
-    setupSearch();
-    createClient(); // Auto-conecta no início
+    setupSearch(); // Ativa as barras de busca
+    createClient(); // Tentativa de auto-conexão ao abrir a página
 }
 
+// Lança a aplicação
 init();
