@@ -112,6 +112,40 @@
 
     <section id="consulta" class="tab-content">
   <div class="card">
+    <div class="card">
+  <h2>Mapa de Separação</h2>
+
+  <div class="grid form-grid">
+    <label>SKU
+      <input id="mapSku" type="number" placeholder="Ex.: 20104409" />
+    </label>
+
+    <label>Fardos necessários
+      <input id="mapQtd" type="number" placeholder="Ex.: 30" />
+    </label>
+
+    <div class="actions">
+      <button type="button" id="addMapaBtn">Adicionar ao mapa</button>
+    </div>
+  </div>
+
+  <div class="table-wrapper">
+    <table id="mapaTable">
+      <thead>
+        <tr>
+          <th>SKU</th>
+          <th>Fardos</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <button type="button" id="gerarMapaBtn" class="secondary">
+    Gerar mapa de separação (PDF)
+  </button>
+</div>
     <h2>Consulta: onde estão os produtos</h2>
     
     <div class="search-container" style="margin-bottom: 20px;">
