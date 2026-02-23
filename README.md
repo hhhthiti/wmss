@@ -70,3 +70,19 @@ Esse script cria uma estrutura mais completa com:
 4. Execute o script.
 
 > Observação: o script é idempotente (usa `if not exists` e `on conflict do nothing`) para facilitar reexecução.
+
+
+## Usando seu schema atual (somente ALTER TABLE)
+
+Como você já tem as tabelas criadas, adicionei um script só com alterações incrementais:
+
+- `supabase/alter_tables_from_current_schema.sql`
+
+Esse script **não recria tabelas**. Ele apenas:
+
+- adiciona checks básicos de qualidade de dados,
+- cria índices de performance,
+- adiciona colunas opcionais em `movimentacoes` (`operacao`, `area`, `observacao`),
+- cria a view `vw_totais_sku`.
+
+Pode rodar direto no SQL Editor do Supabase.
