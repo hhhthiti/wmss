@@ -25,7 +25,8 @@ const el = {
     gerarMapaBtn: document.getElementById('gerarMapaBtn'),
     importForm: document.getElementById('importForm'),
     importFile: document.getElementById('importFile'),
-    // Elementos do Layout
+    exportCadastroBtn: document.getElementById('exportCadastroBtn'),
+    // Layout visual
     visualizarLayoutBtn: document.getElementById('visualizarLayoutBtn'),
     layoutContainer: document.getElementById('layoutContainer'),
     layoutGrid: document.getElementById('layoutGrid'),
@@ -35,17 +36,18 @@ const el = {
 
 let supabaseClient;
 let cache = { estoque: [] };
-let mapaItens = [];
 
 el.supabaseUrl.value = defaultConfig.url;
 el.supabaseKey.value = defaultConfig.key;
 
+// --- Função de feedback visual ---
 function showFeedback(message, type = 'success') {
     el.feedback.textContent = message;
     el.feedback.className = `status ${type}`;
     setTimeout(() => { el.feedback.textContent = ''; }, 4000);
 }
 
+// --- Criar cliente Supabase ---
 async function createClient() {
     const url = el.supabaseUrl.value.trim();
     const key = el.supabaseKey.value.trim();
@@ -54,6 +56,7 @@ async function createClient() {
     loadAll();
 }
 
+// --- Carregar dados do Supabase ---
 async function loadAll() {
     try {
         const { data, error } = await supabaseClient.from('estoque_area').select('*').order('area');
@@ -63,8 +66,8 @@ async function loadAll() {
     } catch (e) { showFeedback(e.message, 'error'); }
 }
 
+// --- Renderizar tabelas ---
 function renderTables() {
-    // Render Cadastro
     el.estoqueTableBody.innerHTML = '';
     cache.estoque.forEach(row => {
         const tr = document.createElement('tr');
@@ -73,7 +76,6 @@ function renderTables() {
         el.estoqueTableBody.appendChild(tr);
     });
 
-    // Render Consulta
     el.consultaAreaBody.innerHTML = '';
     cache.estoque.forEach(row => {
         const tr = document.createElement('tr');
@@ -88,7 +90,7 @@ window.deletarItem = async (area, sku, tipo) => {
     if (!error) loadAll();
 };
 
-// --- LÓGICA DO LAYOUT VISUAL ---
+// --- Layout visual ---
 function gerarLayoutVisual() {
     el.layoutGrid.innerHTML = '';
     const areas = {};
@@ -114,6 +116,7 @@ function gerarLayoutVisual() {
     el.layoutContainer.classList.remove('hidden');
 }
 
+// --- Exportar layout PDF ---
 function exportarLayoutPDF() {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
@@ -142,7 +145,7 @@ function exportarLayoutPDF() {
     doc.save("Layout_Estoque.pdf");
 }
 
-// --- FORMULÁRIOS ---
+// --- Formulário de cadastro ---
 el.estoqueForm.onsubmit = async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -156,7 +159,7 @@ el.estoqueForm.onsubmit = async (e) => {
     if (!error) { showFeedback("Salvo!"); loadAll(); e.target.reset(); }
 };
 
-// --- IMPORTAR PLANILHA ---
+// --- Importar planilha ---
 el.importForm.onsubmit = async (e) => {
     e.preventDefault();
     const file = el.importFile.files[0];
@@ -189,7 +192,26 @@ el.importForm.onsubmit = async (e) => {
     }
 };
 
-// --- INICIALIZAÇÃO ---
+// --- Exportar planilha ---
+el.exportCadastroBtn.onclick = async () => {
+    try {
+        if (!cache.estoque.length) {
+            showFeedback('Nenhum dado para exportar!', 'error');
+            return;
+        }
+
+        const ws = XLSX.utils.json_to_sheet(cache.estoque);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Estoque');
+        XLSX.writeFile(wb, 'Estoque_JSL.xlsx');
+        showFeedback('Planilha exportada com sucesso!');
+    } catch (err) {
+        console.error(err);
+        showFeedback('Erro ao exportar: ' + err.message, 'error');
+    }
+};
+
+// --- Inicialização ---
 function init() {
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.onclick = () => {
