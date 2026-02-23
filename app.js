@@ -20,7 +20,12 @@ const el = {
   movimentacoesBody: document.querySelector('#movimentacoesTable tbody'),
   exportCadastroBtn: document.getElementById('exportCadastroBtn'),
   exportConsultaBtn: document.getElementById('exportConsultaBtn'),
-  exportExpedicaoBtn: document.getElementById('exportExpedicaoBtn')
+  exportExpedicaoBtn: document.getElementById('exportExpedicaoBtn'),
+  visualizarLayoutBtn: document.getElementById('visualizarLayoutBtn'),
+  layoutContainer: document.getElementById('layoutContainer'),
+  layoutGrid: document.getElementById('layoutGrid'),
+  exportLayoutPdfBtn: document.getElementById('exportLayoutPdfBtn'),
+  fecharLayoutBtn: document.getElementById('fecharLayoutBtn')
 };
 
 let supabaseClient;
@@ -355,6 +360,82 @@ async function handleImportSubmit(event) {
   }
 }
 
+
+function parseAreaForLayout(areaRaw) {
+  const area = normalizeText(areaRaw);
+  const match = area.match(/^(TISSUE|LONIL|A|B|C)(\d+)$/);
+  if (!match) return null;
+  return { bloco: match[1], pos: Number(match[2]), area };
+}
+
+function gerarLayoutVisual() {
+  if (!el.layoutGrid || !el.layoutContainer) return;
+
+  el.layoutGrid.innerHTML = '';
+  const colunas = ['TISSUE', 'C', 'B', 'A', 'LONIL'];
+
+  const parsed = cache.estoque
+    .map((item) => ({ item, meta: parseAreaForLayout(item.area) }))
+    .filter((entry) => entry.meta);
+
+  const maxLinha = Math.max(12, ...parsed.map((entry) => entry.meta.pos));
+
+  for (let i = 1; i <= maxLinha; i += 1) {
+    colunas.forEach((coluna) => {
+      const cell = document.createElement('div');
+      cell.className = 'celula vazio';
+      const areaNome = `${coluna}${i}`;
+
+      const itens = parsed
+        .filter((entry) => entry.meta.bloco === coluna && entry.meta.pos === i)
+        .map((entry) => entry.item);
+
+      let conteudo = `<strong>${areaNome}</strong>`;
+      if (itens.length) {
+        cell.classList.remove('vazio');
+        cell.classList.add('ocupado');
+
+        itens.forEach((item) => {
+          const tipoClass = `material-${normalizeText(item.tipo).toLowerCase()}`;
+          conteudo += `<div class="sku ${tipoClass}">SKU: ${item.sku}<br />${item.paletes} pal (${item.tipo})</div>`;
+        });
+      }
+
+      cell.innerHTML = conteudo;
+      el.layoutGrid.appendChild(cell);
+    });
+  }
+
+  el.layoutContainer.classList.remove('hidden');
+}
+
+async function exportarLayoutPDF() {
+  if (!window.html2canvas || !window.jspdf) {
+    showFeedback('Bibliotecas de PDF não carregadas.', 'error');
+    return;
+  }
+
+  try {
+    const canvas = await window.html2canvas(el.layoutGrid, { scale: 2 });
+    const imgData = canvas.toDataURL('image/png');
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF('landscape');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const margin = 10;
+    const width = pageWidth - margin * 2;
+    const height = (canvas.height * width) / canvas.width;
+
+    pdf.addImage(imgData, 'PNG', margin, margin, width, Math.min(height, pageHeight - margin * 2));
+    pdf.save('Planta_Armazem.pdf');
+    showFeedback('PDF do layout exportado com sucesso.');
+  } catch (error) {
+    showFeedback(`Erro ao exportar PDF: ${error.message}`, 'error');
+  }
+}
+
 function exportWorkbook(fileName, sheets) {
   const wb = XLSX.utils.book_new();
   sheets.forEach(({ name, data }) => {
@@ -409,6 +490,9 @@ function init() {
   el.produtoForm.addEventListener('submit', handleProdutoSubmit);
   el.expedicaoForm.addEventListener('submit', handleExpedicaoSubmit);
   el.importForm.addEventListener('submit', handleImportSubmit);
+  el.visualizarLayoutBtn?.addEventListener('click', gerarLayoutVisual);
+  el.exportLayoutPdfBtn?.addEventListener('click', exportarLayoutPDF);
+  el.fecharLayoutBtn?.addEventListener('click', () => el.layoutContainer.classList.add('hidden'));
   createClient();
 }
 

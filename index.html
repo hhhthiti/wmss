@@ -7,6 +7,8 @@
     <link rel="stylesheet" href="styles.css" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   </head>
   <body>
     <header>
@@ -94,7 +96,10 @@
               <tbody></tbody>
             </table>
           </div>
-          <button id="exportCadastroBtn" class="secondary">Exportar planilha (estoque + totais SKU)</button>
+          <div class="layout-actions">
+            <button id="exportCadastroBtn" class="secondary">Exportar planilha (estoque + totais SKU)</button>
+            <button id="visualizarLayoutBtn" class="secondary layout-btn">📦 Visualizar Layout (Cubículos)</button>
+          </div>
         </div>
       </section>
 
@@ -150,6 +155,17 @@
           <button id="exportExpedicaoBtn" class="secondary">Exportar planilha (expedidas + totais SKU expedido)</button>
         </div>
       </section>
+
+      <div id="layoutContainer" class="layout-container hidden">
+        <div class="layout-header">
+          <h2>Layout do Estoque (TISSUE | C | B | A | LONIL)</h2>
+          <div class="layout-header-actions">
+            <button id="exportLayoutPdfBtn" class="secondary">Exportar PDF</button>
+            <button id="fecharLayoutBtn" class="danger">Fechar</button>
+          </div>
+        </div>
+        <div id="layoutGrid" class="layout-grid"></div>
+      </div>
 
       <p id="feedback" class="status"></p>
     </main>

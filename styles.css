@@ -117,3 +117,69 @@ th, td {
   font-size: 0.9rem;
   line-height: 1.4;
 }
+
+.layout-actions {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.layout-btn { background: #2a7f46 !important; }
+
+.layout-container {
+  position: fixed;
+  inset: 0;
+  background: #f4f6f8;
+  overflow: auto;
+  padding: 1rem;
+  z-index: 1000;
+}
+
+.layout-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+  background: #fff;
+  border-radius: 8px;
+  padding: 0.8rem;
+  margin-bottom: 1rem;
+}
+
+.layout-header-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.hidden { display: none !important; }
+
+.layout-grid {
+  display: grid;
+  grid-template-columns: 120px repeat(3, minmax(180px, 1fr)) 120px;
+  gap: 8px;
+}
+
+.celula {
+  border: 2px solid #444;
+  min-height: 78px;
+  padding: 6px;
+  font-size: 12px;
+  background: #f5f5f5;
+}
+
+.vazio { background: #e0e0e0; }
+.ocupado { background: #90caf9; }
+
+.sku {
+  font-size: 11px;
+  margin-top: 4px;
+  border-radius: 4px;
+  padding: 4px;
+  color: #fff;
+  font-weight: 600;
+}
+
+.material-pl2 { background: #1f4d8f; }
+.material-pbr { background: #2a7f46; }
+.material-fardo { background: #6c757d; }

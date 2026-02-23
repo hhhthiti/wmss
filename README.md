@@ -86,3 +86,15 @@ Esse script **não recria tabelas**. Ele apenas:
 - cria a view `vw_totais_sku`.
 
 Pode rodar direto no SQL Editor do Supabase.
+
+
+## Layout visual do galpão + PDF
+
+Na aba **Cadastro**, clique em **"📦 Visualizar Layout (Cubículos)"** para abrir a planta:
+
+- colunas fixas: `TISSUE | C | B | A | LONIL`,
+- leitura automática das áreas no padrão `TISSUE1`, `C1`, `B1`, `A1`, `LONIL1` etc,
+- cores por tipo de material (`PL2`, `PBR`, `FARDO`),
+- botão para exportar a planta em PDF.
+
+> Se a área não seguir esse padrão, ela continua aparecendo nas tabelas normais de estoque, mas não entra na planta fixa.
