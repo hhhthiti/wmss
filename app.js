@@ -23,6 +23,8 @@ const el = {
     mapaTableBody: document.querySelector('#mapaTable tbody'),
     addMapaBtn: document.getElementById('addMapaBtn'),
     gerarMapaBtn: document.getElementById('gerarMapaBtn'),
+    importForm: document.getElementById('importForm'),
+    importFile: document.getElementById('importFile'),
     // Elementos do Layout
     visualizarLayoutBtn: document.getElementById('visualizarLayoutBtn'),
     layoutContainer: document.getElementById('layoutContainer'),
@@ -154,6 +156,39 @@ el.estoqueForm.onsubmit = async (e) => {
     if (!error) { showFeedback("Salvo!"); loadAll(); e.target.reset(); }
 };
 
+// --- IMPORTAR PLANILHA ---
+el.importForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const file = el.importFile.files[0];
+    if (!file) return showFeedback('Selecione um arquivo primeiro!', 'error');
+
+    try {
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet);
+
+        for (const r of rows) {
+            const payload = {
+                area: String(r.area || r.Area || '').toUpperCase(),
+                sku: Number(r.sku || r.SKU),
+                tipo: String(r.tipo || r.Tipo || '').toUpperCase(),
+                paletes: Number(r.paletes || r.Paletes || 0)
+            };
+            if (payload.area && payload.sku && payload.tipo) {
+                await supabaseClient.from('estoque_area').upsert(payload);
+            }
+        }
+
+        showFeedback('Planilha importada com sucesso!');
+        loadAll();
+        e.target.reset();
+    } catch (err) {
+        console.error(err);
+        showFeedback('Erro ao importar: ' + err.message, 'error');
+    }
+};
+
 // --- INICIALIZAÇÃO ---
 function init() {
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -168,7 +203,7 @@ function init() {
     el.visualizarLayoutBtn.onclick = gerarLayoutVisual;
     el.exportLayoutPdfBtn.onclick = exportarLayoutPDF;
     el.fecharLayoutBtn.onclick = () => el.layoutContainer.classList.add('hidden');
-    
+
     createClient();
 }
 
