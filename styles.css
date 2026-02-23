@@ -183,3 +183,17 @@ th, td {
 .material-pl2 { background: #1f4d8f; }
 .material-pbr { background: #2a7f46; }
 .material-fardo { background: #6c757d; }
+
+
+.inline-check {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.inline-check input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}

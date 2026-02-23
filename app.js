@@ -21,6 +21,8 @@ const el = {
   exportCadastroBtn: document.getElementById('exportCadastroBtn'),
   exportConsultaBtn: document.getElementById('exportConsultaBtn'),
   exportExpedicaoBtn: document.getElementById('exportExpedicaoBtn'),
+  exportEspelhoBtn: document.getElementById('exportEspelhoBtn'),
+  autoExportToggle: document.getElementById('autoExportToggle'),
   visualizarLayoutBtn: document.getElementById('visualizarLayoutBtn'),
   layoutContainer: document.getElementById('layoutContainer'),
   layoutGrid: document.getElementById('layoutGrid'),
@@ -33,6 +35,9 @@ let cache = { estoque: [], movimentacoes: [] };
 
 el.supabaseUrl.value = defaultConfig.url;
 el.supabaseKey.value = defaultConfig.key;
+
+const autoExportEnabled = localStorage.getItem('wmss_auto_export') === '1';
+if (el.autoExportToggle) el.autoExportToggle.checked = autoExportEnabled;
 
 function setStatus(target, message, type = '') {
   target.textContent = message;
@@ -134,6 +139,7 @@ function renderEstoque() {
         if (error) throw error;
         showFeedback('Registro excluído com sucesso.');
         await loadEstoque();
+        maybeAutoExport();
       } catch (error) {
         showFeedback(`Erro ao excluir: ${error.message}`, 'error');
       }
@@ -203,6 +209,7 @@ async function handleEstoqueSubmit(event) {
     showFeedback('Estoque salvo com sucesso.');
     event.target.reset();
     await loadEstoque();
+    maybeAutoExport();
   } catch (error) {
     showFeedback(`Erro ao salvar estoque: ${error.message}`, 'error');
   }
@@ -281,6 +288,7 @@ async function handleExpedicaoSubmit(event) {
     showFeedback('Expedição registrada e estoque atualizado.');
     event.target.reset();
     await loadAll();
+    maybeAutoExport();
   } catch (error) {
     showFeedback(`Erro na expedição: ${error.message}`, 'error');
   }
@@ -353,6 +361,7 @@ async function handleImportSubmit(event) {
     }
 
     await loadEstoque();
+    maybeAutoExport();
     showFeedback(`Importação concluída. Incluídos/atualizados: ${insertedOrUpdated}. Apagados: ${deleted}.`);
     el.importForm.reset();
   } catch (error) {
@@ -451,6 +460,24 @@ async function exportarLayoutPDF() {
   }
 }
 
+
+function exportPlanilhaEspelho() {
+  const totaisEstoque = groupTotalBySku(cache.estoque);
+  const totaisExpedido = groupTotalBySku(cache.movimentacoes);
+
+  exportWorkbook('planilha_espelho_wmss.xlsx', [
+    { name: 'Estoque', data: cache.estoque },
+    { name: 'Totais_SKU', data: totaisEstoque },
+    { name: 'Movimentacoes', data: cache.movimentacoes },
+    { name: 'Totais_Expedido_SKU', data: totaisExpedido }
+  ]);
+}
+
+function maybeAutoExport() {
+  if (!el.autoExportToggle?.checked) return;
+  exportPlanilhaEspelho();
+}
+
 function exportWorkbook(fileName, sheets) {
   const wb = XLSX.utils.book_new();
   sheets.forEach(({ name, data }) => {
@@ -484,6 +511,11 @@ function setupExports() {
       { name: 'Totais_Expedido_SKU', data: totaisExpedido }
     ]);
   });
+
+  el.exportEspelhoBtn?.addEventListener('click', () => {
+    exportPlanilhaEspelho();
+    showFeedback('Planilha espelho gerada com sucesso.');
+  });
 }
 
 function setupTabs() {
@@ -508,6 +540,11 @@ function init() {
   el.visualizarLayoutBtn?.addEventListener('click', gerarLayoutVisual);
   el.exportLayoutPdfBtn?.addEventListener('click', exportarLayoutPDF);
   el.fecharLayoutBtn?.addEventListener('click', () => el.layoutContainer.classList.add('hidden'));
+  el.autoExportToggle?.addEventListener('change', (event) => {
+    const enabled = event.target.checked;
+    localStorage.setItem('wmss_auto_export', enabled ? '1' : '0');
+    showFeedback(enabled ? 'Auto planilha ativado.' : 'Auto planilha desativado.');
+  });
   createClient();
 }
 

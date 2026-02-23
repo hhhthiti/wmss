@@ -100,3 +100,20 @@ Na aba **Cadastro**, clique em **"📦 Visualizar Layout (Cubículos)"** para ab
 
 > Se usar `B1`, `B2`... (padrão antigo), o sistema considera como `BE1`, `BE2`... por compatibilidade.
 > Se a área não seguir esse padrão, ela continua aparecendo nas tabelas normais de estoque, mas não entra na planta fixa.
+
+
+## Planilha espelho automática
+
+Foi adicionada uma seção no **Cadastro** para "Planilha espelho automática":
+
+- botão **Baixar planilha espelho agora**,
+- opção **Atualizar planilha automaticamente a cada alteração**.
+
+Quando ativo, após ações de cadastro/edição, exclusão, importação e expedição, o sistema baixa uma nova `planilha_espelho_wmss.xlsx` com:
+
+- estoque atual,
+- totais por SKU,
+- movimentações,
+- totais expedidos por SKU.
+
+> Importante: por segurança do navegador, não é possível editar automaticamente o mesmo arquivo Excel já aberto no seu computador. O que o sistema faz é gerar uma nova versão atualizada da planilha.
