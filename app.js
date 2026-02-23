@@ -137,33 +137,17 @@ function gerarLayoutVisual() {
 }
 // --- Exportar layout PDF ---
 function exportarLayoutPDF() {
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
-    let y = 20;
-    doc.text("Layout Visual de Estoque - JSL", 10, y);
-    y += 10;
 
-    const areas = {};
-    cache.estoque.forEach(item => {
-        if (!areas[item.area]) areas[item.area] = [];
-        areas[item.area].push(item);
-    });
+    html2canvas(el.layoutGrid).then(canvas => {
+        const img = canvas.toDataURL("image/png");
 
-    Object.keys(areas).sort().forEach(area => {
-        if (y > 270) { doc.addPage(); y = 20; }
-        doc.setFontSize(12);
-        doc.text(`Área: ${area}`, 10, y);
-        y += 6;
-        doc.setFontSize(10);
-        areas[area].forEach(item => {
-            doc.text(` - SKU ${item.sku}: ${item.paletes} (${item.tipo})`, 15, y);
-            y += 5;
-        });
-        y += 5;
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF('landscape');
+
+        pdf.addImage(img, 'PNG', 10, 10, 270, 180);
+        pdf.save("Planta_Armazem.pdf");
     });
-    doc.save("Layout_Estoque.pdf");
 }
-
 // --- Formulário de cadastro ---
 el.estoqueForm.onsubmit = async (e) => {
     e.preventDefault();
