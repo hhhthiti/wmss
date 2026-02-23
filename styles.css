@@ -78,28 +78,31 @@ th, td { border-bottom: 1px solid #e1e6eb; padding: 0.55rem; text-align: left; }
 
 /* Layout da Planta Visual */
 .planta-grid {
-    display: flex;
-    justify-content: space-around;
-    gap: 20px;
-    padding: 20px;
-    background: #fff;
-    border-radius: 12px;
-}
-
-.setor-lateral, .corredor {
-    background: #f8f9fa;
-    border: 2px solid #dee2e6;
-    border-radius: 8px;
-    padding: 10px;
-    min-width: 150px;
-    text-align: center;
-}
-
-.vagas {
     display: grid;
-    grid-template-columns: repeat(2, 1fr); /* 2 paletes por linha na visualização */
-    gap: 5px;
-    margin-top: 10px;
+    grid-template-columns: 120px repeat(3, 1fr) 120px;
+    gap: 8px;
+    padding: 20px;
+}
+
+.celula {
+    border: 2px solid #444;
+    min-height: 70px;
+    padding: 6px;
+    font-size: 12px;
+    background: #f5f5f5;
+}
+
+.vazio {
+    background: #e0e0e0;
+}
+
+.ocupado {
+    background: #90caf9;
+}
+
+.sku {
+    font-size: 11px;
+    margin-top: 4px;
 }
 
 /* Quadrado de cada palete */
