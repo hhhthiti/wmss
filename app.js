@@ -92,30 +92,49 @@ window.deletarItem = async (area, sku, tipo) => {
 
 // --- Layout visual ---
 function gerarLayoutVisual() {
+
     el.layoutGrid.innerHTML = '';
-    const areas = {};
 
-    cache.estoque.forEach(item => {
-        if (!areas[item.area]) areas[item.area] = [];
-        areas[item.area].push(item);
-    });
+    const colunas = ['TISSUE', 'C', 'B', 'A', 'LONIL'];
+    const linhas = 12; // quantidade de posições no comprimento
 
-    Object.keys(areas).sort().forEach(area => {
-        const div = document.createElement('div');
-        div.className = 'cubiculo';
-        let html = `<h3>📦 Área ${area}</h3>`;
-        areas[area].forEach(item => {
-            html += `<div class="item-sku-layout">
-                <strong>SKU:</strong> ${item.sku}<br>
-                <strong>Qtd:</strong> ${item.paletes} paletes (${item.tipo})
-            </div>`;
+    const grid = document.createElement('div');
+    grid.className = 'planta-grid';
+
+    for (let i = 0; i < linhas; i++) {
+        colunas.forEach(col => {
+
+            const cell = document.createElement('div');
+            cell.className = 'celula';
+
+            const areaNome = `${col}${i + 1}`;
+
+            const itens = cache.estoque.filter(x =>
+                x.area.toUpperCase() === areaNome
+            );
+
+            let conteudo = `<strong>${areaNome}</strong>`;
+
+            if (itens.length > 0) {
+                itens.forEach(item => {
+                    conteudo += `<div class="sku">
+                        SKU: ${item.sku}<br>
+                        ${item.paletes} pal
+                    </div>`;
+                });
+                cell.classList.add('ocupado');
+            } else {
+                cell.classList.add('vazio');
+            }
+
+            cell.innerHTML = conteudo;
+            grid.appendChild(cell);
         });
-        div.innerHTML = html;
-        el.layoutGrid.appendChild(div);
-    });
+    }
+
+    el.layoutGrid.appendChild(grid);
     el.layoutContainer.classList.remove('hidden');
 }
-
 // --- Exportar layout PDF ---
 function exportarLayoutPDF() {
     const { jsPDF } = window.jspdf;
