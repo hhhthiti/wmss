@@ -14,6 +14,8 @@ const el = {
   expedicaoForm: document.getElementById('expedicaoForm'),
   importForm: document.getElementById('importForm'),
   importFile: document.getElementById('importFile'),
+  importFileName: document.getElementById('importFileName'),
+  selectImportBtn: document.getElementById('selectImportBtn'),
   estoqueTableBody: document.querySelector('#estoqueTable tbody'),
   consultaAreaBody: document.querySelector('#consultaAreaTable tbody'),
   totaisSkuBody: document.querySelector('#totaisSkuTable tbody'),
@@ -397,15 +399,27 @@ function gerarLayoutVisual() {
 
   el.layoutGrid.innerHTML = '';
   const colunas = ['TISSUE', 'C', 'BE', 'BD', 'A', 'LONIL'];
+  const limitePorColuna = {
+    TISSUE: 1,
+    LONIL: 1
+  };
 
   const parsed = cache.estoque
     .map((item) => ({ item, meta: parseAreaForLayout(item.area) }))
     .filter((entry) => entry.meta);
 
-  const maxLinha = Math.max(12, ...parsed.map((entry) => entry.meta.pos));
+  colunas.forEach((coluna) => {
+    const colunaEl = document.createElement('div');
+    colunaEl.className = 'layout-coluna';
+    colunaEl.innerHTML = `<h3>${coluna}</h3>`;
 
-  for (let i = 1; i <= maxLinha; i += 1) {
-    colunas.forEach((coluna) => {
+    const maiorPosicaoNaColuna = Math.max(
+      0,
+      ...parsed.filter((entry) => entry.meta.bloco === coluna).map((entry) => entry.meta.pos)
+    );
+    const maxLinha = limitePorColuna[coluna] ?? Math.max(12, maiorPosicaoNaColuna);
+
+    for (let i = 1; i <= maxLinha; i += 1) {
       const cell = document.createElement('div');
       cell.className = 'celula vazio';
       const areaNome = `${coluna}${i}`;
@@ -426,9 +440,11 @@ function gerarLayoutVisual() {
       }
 
       cell.innerHTML = conteudo;
-      el.layoutGrid.appendChild(cell);
-    });
-  }
+      colunaEl.appendChild(cell);
+    }
+
+    el.layoutGrid.appendChild(colunaEl);
+  });
 
   el.layoutContainer.classList.remove('hidden');
 }
@@ -461,7 +477,11 @@ async function exportarLayoutPDF() {
 }
 
 
-function exportPlanilhaEspelho() {
+async function exportPlanilhaEspelho() {
+  if (supabaseClient) {
+    await loadAll();
+  }
+
   const totaisEstoque = groupTotalBySku(cache.estoque);
   const totaisExpedido = groupTotalBySku(cache.movimentacoes);
 
@@ -512,9 +532,13 @@ function setupExports() {
     ]);
   });
 
-  el.exportEspelhoBtn?.addEventListener('click', () => {
-    exportPlanilhaEspelho();
-    showFeedback('Planilha espelho gerada com sucesso.');
+  el.exportEspelhoBtn?.addEventListener('click', async () => {
+    try {
+      await exportPlanilhaEspelho();
+      showFeedback('Planilha espelho gerada com sucesso.');
+    } catch (error) {
+      showFeedback(`Erro ao gerar planilha espelho: ${error.message}`, 'error');
+    }
   });
 }
 
@@ -537,6 +561,11 @@ function init() {
   el.produtoForm.addEventListener('submit', handleProdutoSubmit);
   el.expedicaoForm.addEventListener('submit', handleExpedicaoSubmit);
   el.importForm.addEventListener('submit', handleImportSubmit);
+  el.selectImportBtn?.addEventListener('click', () => el.importFile?.click());
+  el.importFile?.addEventListener('change', () => {
+    const name = el.importFile.files?.[0]?.name || 'Nenhum arquivo selecionado';
+    if (el.importFileName) el.importFileName.textContent = name;
+  });
   el.visualizarLayoutBtn?.addEventListener('click', gerarLayoutVisual);
   el.exportLayoutPdfBtn?.addEventListener('click', exportarLayoutPDF);
   el.fecharLayoutBtn?.addEventListener('click', () => el.layoutContainer.classList.add('hidden'));

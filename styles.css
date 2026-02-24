@@ -73,6 +73,8 @@ button.delete-btn { background: #b93636; }
 .actions {
   display: flex;
   align-items: flex-end;
+  gap: 0.55rem;
+  flex-wrap: wrap;
 }
 
 .tabs {
@@ -118,6 +120,16 @@ th, td {
   line-height: 1.4;
 }
 
+
+.file-picker-label input[type="file"] {
+  display: none;
+}
+
+.file-name {
+  color: #51606f;
+  font-size: 0.85rem;
+}
+
 .layout-actions {
   display: flex;
   gap: 0.6rem;
@@ -156,8 +168,23 @@ th, td {
 
 .layout-grid {
   display: grid;
-  grid-template-columns: 120px repeat(4, minmax(160px, 1fr)) 120px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.layout-coluna {
+  display: grid;
   gap: 8px;
+}
+
+.layout-coluna h3 {
+  margin: 0;
+  text-align: center;
+  background: #dce5ef;
+  border-radius: 6px;
+  padding: 0.45rem;
+  font-size: 0.9rem;
 }
 
 .celula {

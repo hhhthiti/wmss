@@ -78,11 +78,15 @@
             Caso contrário, será feito incluir/atualizar.
           </p>
           <form id="importForm" class="grid form-grid">
-            <label>
+            <label class="file-picker-label">
               Arquivo (.xlsx/.xls/.csv)
               <input id="importFile" type="file" accept=".xlsx,.xls,.csv" required />
+              <span id="importFileName" class="file-name">Nenhum arquivo selecionado</span>
             </label>
-            <div class="actions"><button type="submit">Processar planilha</button></div>
+            <div class="actions">
+              <button id="selectImportBtn" type="button" class="secondary">Selecionar planilha</button>
+              <button type="submit">Processar planilha</button>
+            </div>
           </form>
         </div>
 
