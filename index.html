@@ -134,6 +134,7 @@
 
         <div class="card">
           <h2>Totais por SKU (todas as áreas)</h2>
+          <p class="helper-text">Observação: a área <strong>C01</strong> (retrabalho) não entra na contagem de totais.</p>
           <div class="table-wrapper">
             <table id="totaisSkuTable">
               <thead><tr><th>SKU</th><th>Total Paletes</th></tr></thead>
@@ -141,6 +142,17 @@
             </table>
           </div>
           <button id="exportConsultaBtn" class="secondary">Exportar planilha (consulta + totais SKU)</button>
+        </div>
+
+        <div class="card">
+          <h2>Sobras B01 (esquerdo/direito)</h2>
+          <p class="helper-text">Lista rápida dos SKUs misturados em B01, B01E e B01D.</p>
+          <div class="table-wrapper">
+            <table id="sobrasB01Table">
+              <thead><tr><th>Área</th><th>SKU</th><th>Tipo</th><th>Paletes</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </section>
 
@@ -186,6 +198,10 @@
         <div class="estruturas-section">
           <h3>Estruturas / Túnel (somente caixas)</h3>
           <div id="estruturasGrid" class="estruturas-grid"></div>
+        </div>
+        <div class="semantico-section">
+          <h3>Mapa semântico (somente áreas físicas)</h3>
+          <div id="semanticLayout" class="semantic-layout"></div>
         </div>
       </div>
 

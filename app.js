@@ -19,6 +19,7 @@ const el = {
   estoqueTableBody: document.querySelector('#estoqueTable tbody'),
   consultaAreaBody: document.querySelector('#consultaAreaTable tbody'),
   totaisSkuBody: document.querySelector('#totaisSkuTable tbody'),
+  sobrasB01Body: document.querySelector('#sobrasB01Table tbody'),
   movimentacoesBody: document.querySelector('#movimentacoesTable tbody'),
   exportCadastroBtn: document.getElementById('exportCadastroBtn'),
   exportConsultaBtn: document.getElementById('exportConsultaBtn'),
@@ -29,6 +30,7 @@ const el = {
   layoutContainer: document.getElementById('layoutContainer'),
   layoutGrid: document.getElementById('layoutGrid'),
   estruturasGrid: document.getElementById('estruturasGrid'),
+  semanticLayout: document.getElementById('semanticLayout'),
   exportLayoutPdfBtn: document.getElementById('exportLayoutPdfBtn'),
   fecharLayoutBtn: document.getElementById('fecharLayoutBtn')
 };
@@ -62,6 +64,10 @@ function normalizeAreaCode(value) {
 function shouldDeleteByAction(actionValue) {
   const action = normalizeText(actionValue);
   return ['APAGAR', 'EXCLUIR', 'DELETE', 'DEL', 'REMOVER', 'REMOVE'].includes(action);
+}
+
+function isRetrabalhoArea(area) {
+  return normalizeAreaCode(area) === 'C01';
 }
 
 function createClient() {
@@ -156,8 +162,11 @@ function renderEstoque() {
   });
 }
 
-function groupTotalBySku(rows) {
-  const totals = rows.reduce((acc, row) => {
+function groupTotalBySku(rows, options = {}) {
+  const { excludeRetrabalho = false } = options;
+  const filteredRows = excludeRetrabalho ? rows.filter((row) => !isRetrabalhoArea(row.area)) : rows;
+
+  const totals = filteredRows.reduce((acc, row) => {
     acc[row.sku] = (acc[row.sku] || 0) + Number(row.paletes);
     return acc;
   }, {});
@@ -165,6 +174,50 @@ function groupTotalBySku(rows) {
   return Object.entries(totals)
     .map(([sku, total]) => ({ sku: Number(sku), total_paletes: total }))
     .sort((a, b) => a.sku - b.sku);
+}
+
+function renderSobrasB01() {
+  if (!el.sobrasB01Body) return;
+  el.sobrasB01Body.innerHTML = '';
+
+  const sobras = cache.estoque.filter((row) => ['B01', 'B01E', 'B01D'].includes(normalizeAreaCode(row.area)));
+
+  sobras.forEach((row) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${row.area}</td><td>${row.sku}</td><td>${row.tipo}</td><td>${row.paletes}</td>`;
+    el.sobrasB01Body.appendChild(tr);
+  });
+
+  if (!sobras.length) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="4">Sem sobras cadastradas em B01/B01E/B01D.</td>';
+    el.sobrasB01Body.appendChild(tr);
+  }
+}
+
+function renderSemanticLayout() {
+  if (!el.semanticLayout) return;
+
+  el.semanticLayout.innerHTML = `
+    <div class="sem-row sem-top">
+      <div class="sem-tenda">TISSUE</div>
+      <div class="sem-rua-top">Rua de acesso</div>
+      <div class="sem-tenda">LONIL</div>
+    </div>
+    <div class="sem-row sem-main">
+      <div class="sem-bloco">C (12 posições)</div>
+      <div class="sem-bloco">BE / BD (12 posições)</div>
+      <div class="sem-bloco">A (12 posições)</div>
+      <div class="sem-servicos">
+        <span>Extintores</span>
+        <span>Escritório</span>
+        <span>Banheiro</span>
+      </div>
+    </div>
+    <div class="sem-row sem-foot">
+      <small>Obs.: B01 (E/D) = área de sobras | C01 = retrabalho (fora do total).</small>
+    </div>
+  `;
 }
 
 function renderConsulta() {
@@ -175,13 +228,15 @@ function renderConsulta() {
     el.consultaAreaBody.appendChild(tr);
   });
 
-  const totais = groupTotalBySku(cache.estoque);
+  const totais = groupTotalBySku(cache.estoque, { excludeRetrabalho: true });
   el.totaisSkuBody.innerHTML = '';
   totais.forEach((item) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `<td>${item.sku}</td><td>${item.total_paletes}</td>`;
     el.totaisSkuBody.appendChild(tr);
   });
+
+  renderSobrasB01();
 }
 
 function renderMovimentacoes() {
@@ -381,6 +436,13 @@ function parseAreaForLayout(areaRaw) {
   const area = normalizeText(areaRaw);
   const normalized = normalizeAreaCode(areaRaw);
 
+  const bSuffixedMatch = normalized.match(/^B(\d+)([ED])$/);
+  if (bSuffixedMatch) {
+    const pos = Number(bSuffixedMatch[1]);
+    const lado = bSuffixedMatch[2] === 'E' ? 'BE' : 'BD';
+    return { bloco: lado, pos, area };
+  }
+
   const directMatch = normalized.match(/^(TISSUE|LONIL|A|B|C|BE|BD)(\d+)$/);
   if (directMatch) {
     return { bloco: directMatch[1], pos: Number(directMatch[2]), area };
@@ -483,6 +545,8 @@ function gerarLayoutVisual() {
     el.estruturasGrid.innerHTML = '<p class="helper-text">Sem caixas cadastradas em Estruturas/Túnel.</p>';
   }
 
+  renderSemanticLayout();
+
   el.layoutContainer.classList.remove('hidden');
 }
 
@@ -520,7 +584,7 @@ async function exportPlanilhaEspelho() {
     await loadAll();
   }
 
-  const totaisEstoque = groupTotalBySku(cache.estoque);
+  const totaisEstoque = groupTotalBySku(cache.estoque, { excludeRetrabalho: true });
   const totaisExpedido = groupTotalBySku(cache.movimentacoes);
 
   exportWorkbook('planilha_espelho_wmss.xlsx', [
@@ -547,7 +611,7 @@ function exportWorkbook(fileName, sheets) {
 
 function setupExports() {
   el.exportCadastroBtn.addEventListener('click', () => {
-    const totais = groupTotalBySku(cache.estoque);
+    const totais = groupTotalBySku(cache.estoque, { excludeRetrabalho: true });
     exportWorkbook('cadastro_estoque.xlsx', [
       { name: 'Estoque', data: cache.estoque },
       { name: 'Totais_SKU', data: totais }
@@ -555,7 +619,7 @@ function setupExports() {
   });
 
   el.exportConsultaBtn.addEventListener('click', () => {
-    const totais = groupTotalBySku(cache.estoque);
+    const totais = groupTotalBySku(cache.estoque, { excludeRetrabalho: true });
     exportWorkbook('consulta_estoque.xlsx', [
       { name: 'Consulta_Areas', data: cache.estoque },
       { name: 'Totais_SKU', data: totais }
