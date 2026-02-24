@@ -224,3 +224,35 @@ th, td {
   width: 18px;
   height: 18px;
 }
+
+
+.estruturas-section {
+  margin-top: 1rem;
+  background: #fff;
+  border-radius: 8px;
+  padding: 0.8rem;
+}
+
+.estruturas-section h3 {
+  margin: 0 0 0.6rem;
+}
+
+.estruturas-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.6rem;
+}
+
+.estrutura-box {
+  border: 1px solid #ccd4dd;
+  border-radius: 8px;
+  padding: 0.55rem;
+  display: grid;
+  gap: 0.25rem;
+  background: #f9fbfd;
+}
+
+.estrutura-box span {
+  color: #3e4a58;
+  font-weight: 600;
+}

@@ -28,6 +28,7 @@ const el = {
   visualizarLayoutBtn: document.getElementById('visualizarLayoutBtn'),
   layoutContainer: document.getElementById('layoutContainer'),
   layoutGrid: document.getElementById('layoutGrid'),
+  estruturasGrid: document.getElementById('estruturasGrid'),
   exportLayoutPdfBtn: document.getElementById('exportLayoutPdfBtn'),
   fecharLayoutBtn: document.getElementById('fecharLayoutBtn')
 };
@@ -52,6 +53,10 @@ function showFeedback(message, type = 'success') {
 
 function normalizeText(value) {
   return String(value ?? '').trim().toUpperCase();
+}
+
+function normalizeAreaCode(value) {
+  return normalizeText(value).replace(/[-_\s]/g, '');
 }
 
 function shouldDeleteByAction(actionValue) {
@@ -199,7 +204,7 @@ async function handleEstoqueSubmit(event) {
 
   const formData = new FormData(event.target);
   const payload = {
-    area: normalizeText(formData.get('area')),
+    area: normalizeAreaCode(formData.get('area')),
     sku: Number(formData.get('sku')),
     tipo: normalizeText(formData.get('tipo')),
     paletes: Number(formData.get('paletes'))
@@ -253,7 +258,7 @@ async function handleExpedicaoSubmit(event) {
   if (!supabaseClient) return showFeedback('Conecte ao Supabase primeiro.', 'error');
 
   const formData = new FormData(event.target);
-  const area = normalizeText(formData.get('area'));
+  const area = normalizeAreaCode(formData.get('area'));
   const sku = Number(formData.get('sku'));
   const tipo = normalizeText(formData.get('tipo'));
   const paletes = Number(formData.get('paletes'));
@@ -302,7 +307,7 @@ function mapImportRow(rawRow) {
   );
 
   return {
-    area: normalizeText(row.area),
+    area: normalizeAreaCode(row.area),
     sku: Number(row.sku),
     tipo: normalizeText(row.tipo),
     paletes: Number(row.paletes),
@@ -374,9 +379,9 @@ async function handleImportSubmit(event) {
 
 function parseAreaForLayout(areaRaw) {
   const area = normalizeText(areaRaw);
-  const normalized = area.replace(/[-_\s]/g, '');
+  const normalized = normalizeAreaCode(areaRaw);
 
-  const directMatch = normalized.match(/^(TISSUE|LONIL|A|C|BE|BD)(\d+)$/);
+  const directMatch = normalized.match(/^(TISSUE|LONIL|A|B|C|BE|BD)(\d+)$/);
   if (directMatch) {
     return { bloco: directMatch[1], pos: Number(directMatch[2]), area };
   }
@@ -388,17 +393,23 @@ function parseAreaForLayout(areaRaw) {
 
   const legacyBMatch = normalized.match(/^B(\d+)$/);
   if (legacyBMatch) {
-    return { bloco: 'BE', pos: Number(legacyBMatch[1]), area };
+    return { bloco: 'B', pos: Number(legacyBMatch[1]), area };
+  }
+
+  const tunelMatch = normalized.match(/^TUNEL(\d+)$/);
+  if (tunelMatch) {
+    return { bloco: 'TUNEL', pos: Number(tunelMatch[1]), area };
   }
 
   return null;
 }
 
 function gerarLayoutVisual() {
-  if (!el.layoutGrid || !el.layoutContainer) return;
+  if (!el.layoutGrid || !el.layoutContainer || !el.estruturasGrid) return;
 
   el.layoutGrid.innerHTML = '';
-  const colunas = ['TISSUE', 'C', 'BE', 'BD', 'A', 'LONIL'];
+  el.estruturasGrid.innerHTML = '';
+  const colunas = ['TISSUE', 'C', 'BE', 'BD', 'B', 'A', 'LONIL'];
   const limitePorColuna = {
     TISSUE: 1,
     LONIL: 1
@@ -408,6 +419,11 @@ function gerarLayoutVisual() {
     .map((item) => ({ item, meta: parseAreaForLayout(item.area) }))
     .filter((entry) => entry.meta);
 
+  const parsedEstruturas = parsed.filter((entry) =>
+    (entry.meta.bloco === 'A' && entry.meta.pos <= 5) || entry.meta.bloco === 'TUNEL'
+  );
+  const parsedLayout = parsed.filter((entry) => !parsedEstruturas.includes(entry));
+
   colunas.forEach((coluna) => {
     const colunaEl = document.createElement('div');
     colunaEl.className = 'layout-coluna';
@@ -415,16 +431,18 @@ function gerarLayoutVisual() {
 
     const maiorPosicaoNaColuna = Math.max(
       0,
-      ...parsed.filter((entry) => entry.meta.bloco === coluna).map((entry) => entry.meta.pos)
+      ...parsedLayout.filter((entry) => entry.meta.bloco === coluna).map((entry) => entry.meta.pos)
     );
-    const maxLinha = limitePorColuna[coluna] ?? Math.max(12, maiorPosicaoNaColuna);
 
-    for (let i = 1; i <= maxLinha; i += 1) {
+    const minLinha = coluna === 'A' ? 6 : 1;
+    const maxLinha = limitePorColuna[coluna] ?? Math.max(12, maiorPosicaoNaColuna, minLinha);
+
+    for (let i = minLinha; i <= maxLinha; i += 1) {
       const cell = document.createElement('div');
       cell.className = 'celula vazio';
       const areaNome = `${coluna}${i}`;
 
-      const itens = parsed
+      const itens = parsedLayout
         .filter((entry) => entry.meta.bloco === coluna && entry.meta.pos === i)
         .map((entry) => entry.item);
 
@@ -446,8 +464,28 @@ function gerarLayoutVisual() {
     el.layoutGrid.appendChild(colunaEl);
   });
 
+  const totaisEstruturas = parsedEstruturas.reduce((acc, entry) => {
+    const chave = entry.meta.bloco === 'TUNEL' ? `TÚNEL ${entry.meta.pos}` : `A${entry.meta.pos}`;
+    acc[chave] = (acc[chave] || 0) + Number(entry.item.paletes || 0);
+    return acc;
+  }, {});
+
+  Object.entries(totaisEstruturas)
+    .sort(([a], [b]) => a.localeCompare(b, 'pt-BR', { numeric: true }))
+    .forEach(([area, caixas]) => {
+      const box = document.createElement('div');
+      box.className = 'estrutura-box';
+      box.innerHTML = `<strong>${area}</strong><span>${caixas} caixas</span>`;
+      el.estruturasGrid.appendChild(box);
+    });
+
+  if (!Object.keys(totaisEstruturas).length) {
+    el.estruturasGrid.innerHTML = '<p class="helper-text">Sem caixas cadastradas em Estruturas/Túnel.</p>';
+  }
+
   el.layoutContainer.classList.remove('hidden');
 }
+
 
 async function exportarLayoutPDF() {
   if (!window.html2canvas || !window.jspdf) {
