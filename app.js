@@ -27,6 +27,7 @@ const el = {
   turnoFile: document.getElementById('turnoFile'),
   turnoStatus: document.getElementById('turnoStatus'),
   turnoSkuBody: document.querySelector('#turnoSkuTable tbody'),
+  turnoHistoryBody: document.querySelector('#turnoHistoryTable tbody'),
   movimentacoesBody: document.querySelector('#movimentacoesTable tbody'),
   exportCadastroBtn: document.getElementById('exportCadastroBtn'),
   exportConsultaBtn: document.getElementById('exportConsultaBtn'),
@@ -45,6 +46,7 @@ const el = {
 let supabaseClient;
 let cache = { estoque: [], movimentacoes: [], produtos: [] };
 let fracionadoMap = {};
+let turnoSnapshots = JSON.parse(localStorage.getItem('wmss_turno_snapshots') || '[]');
 
 const capacidadePlanejamento = {
   A: 80,
@@ -484,6 +486,35 @@ function consolidarPorChave(rows) {
   }, {});
 }
 
+function saveTurnoSnapshot(snapshotRows) {
+  const item = {
+    created_at: new Date().toISOString(),
+    rows: snapshotRows
+  };
+
+  turnoSnapshots = [item, ...turnoSnapshots].slice(0, 3);
+  localStorage.setItem('wmss_turno_snapshots', JSON.stringify(turnoSnapshots));
+  renderTurnoHistory();
+}
+
+function renderTurnoHistory() {
+  if (!el.turnoHistoryBody) return;
+  el.turnoHistoryBody.innerHTML = '';
+
+  if (!turnoSnapshots.length) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="2">Sem snapshots salvos.</td>';
+    el.turnoHistoryBody.appendChild(tr);
+    return;
+  }
+
+  turnoSnapshots.forEach((snap) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${new Date(snap.created_at).toLocaleString('pt-BR')}</td><td>${snap.rows.length}</td>`;
+    el.turnoHistoryBody.appendChild(tr);
+  });
+}
+
 async function handleTurnoSubmit(event) {
   event.preventDefault();
   const file = el.turnoFile?.files?.[0];
@@ -495,7 +526,8 @@ async function handleTurnoSubmit(event) {
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' }).map(mapImportRow);
 
-    const atual = consolidarPorChave(cache.estoque);
+    const snapshotAnterior = turnoSnapshots[0]?.rows ?? null;
+    const atual = snapshotAnterior ? consolidarPorChave(snapshotAnterior) : consolidarPorChave(cache.estoque);
     const finalTurno = consolidarPorChave(rows);
     const saidaSkuTipo = {};
     const missing = new Set();
@@ -526,10 +558,12 @@ async function handleTurnoSubmit(event) {
       el.turnoSkuBody.appendChild(tr);
     }
 
+    saveTurnoSnapshot(rows);
+
     if (missing.size) {
-      setStatus(el.turnoStatus, `Comparação concluída. SKU(s) sem fardos por palete: ${[...missing].join(', ')}.`, 'error');
+      setStatus(el.turnoStatus, `Comparação concluída (${snapshotAnterior ? 'anterior x atual' : 'estoque atual x planilha'}). SKU(s) sem fardos por palete: ${[...missing].join(', ')}.`, 'error');
     } else {
-      setStatus(el.turnoStatus, 'Comparação concluída com sucesso.', 'success');
+      setStatus(el.turnoStatus, `Comparação concluída com sucesso (${snapshotAnterior ? 'anterior x atual' : 'estoque atual x planilha'}).`, 'success');
     }
   } catch (error) {
     setStatus(el.turnoStatus, `Erro ao processar planilha do turno: ${error.message}`, 'error');
@@ -837,7 +871,7 @@ function setupExports() {
     if (missingSkus.length) showFeedback(`Aviso: SKU(s) sem fardos por palete: ${missingSkus.join(', ')}.`, 'error');
   });
 
-  el.exportExpedicaoBtn.addEventListener('click', () => {
+  el.exportExpedicaoBtn?.addEventListener('click', () => {
     const totaisExpedido = groupTotalBySku(cache.movimentacoes);
     exportWorkbook('expedicao.xlsx', [
       { name: 'Expedicoes', data: cache.movimentacoes },
@@ -879,6 +913,7 @@ function init() {
   setupTabs();
   setupExports();
   setupPlanejamento();
+  renderTurnoHistory();
   el.turnoForm?.addEventListener('submit', handleTurnoSubmit);
   el.paleteIncompletoToggle?.addEventListener('change', (event) => {
     el.paleteIncompletoFields?.classList.toggle('hidden', !event.target.checked);

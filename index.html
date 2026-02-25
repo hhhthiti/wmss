@@ -155,7 +155,8 @@
       <section id="expedicao" class="tab-content">
         <div class="card">
           <h2>Conferência por planilha (fim de turno)</h2>
-          <p class="helper-text">Importe a planilha da contagem final para o sistema calcular automaticamente o que saiu por SKU.</p>
+          <p class="helper-text">Suba a planilha da contagem final do dia. O sistema salva esse snapshot e compara com o snapshot anterior.</p>
+          <p class="helper-text">Histórico local: mantém as últimas 3 atualizações para comparar dia atual x dia anterior sem sobrecarregar o banco.</p>
           <form id="turnoForm" class="grid form-grid">
             <label>
               Planilha final (.xlsx/.xls/.csv)
@@ -164,6 +165,16 @@
             <div class="actions"><button type="submit">Calcular saída do turno</button></div>
           </form>
           <p id="turnoStatus" class="status"></p>
+        </div>
+
+        <div class="card">
+          <h2>Histórico de snapshots (últimos 3)</h2>
+          <div class="table-wrapper">
+            <table id="turnoHistoryTable">
+              <thead><tr><th>Data</th><th>Registros</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
 
         <div class="card">
