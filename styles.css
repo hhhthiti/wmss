@@ -182,44 +182,42 @@ th, td {
 .hidden { display: none !important; }
 
 .layout-grid {
+  overflow: auto;
+}
+
+.blueprint-wrap {
+  min-width: 1900px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 10px;
-  align-items: start;
+  gap: 0.45rem;
+  background: #fff;
+  padding: 0.5rem;
+  border-radius: 8px;
 }
 
-.layout-coluna {
+.bp-row {
   display: grid;
-  gap: 8px;
+  grid-template-columns: repeat(26, minmax(68px, 1fr));
+  gap: 2px;
 }
 
-.layout-coluna h3 {
-  margin: 0;
-  text-align: center;
-  background: #dce5ef;
-  border-radius: 6px;
-  padding: 0.45rem;
-  font-size: 0.9rem;
-}
-
-.celula {
-  border: 2px solid #444;
-  min-height: 78px;
-  padding: 6px;
-  font-size: 12px;
-  background: #f5f5f5;
-}
-
-.vazio { background: #e0e0e0; }
-.ocupado { background: #90caf9; }
-
-.sku {
+.bp-cell {
+  border: 1px dotted #666;
+  background: #f8f8f8;
+  min-height: 68px;
+  padding: 2px 4px;
   font-size: 11px;
-  margin-top: 4px;
-  border-radius: 4px;
-  padding: 4px;
-  color: #fff;
-  font-weight: 600;
+  line-height: 1.25;
+}
+
+.bp-cell strong {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+
+.bp-empty {
+  background: transparent;
+  border: 0;
 }
 
 .material-pl2 { background: #1f4d8f; }

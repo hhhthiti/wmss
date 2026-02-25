@@ -680,16 +680,95 @@ function parseAreaForLayout(areaRaw) {
   return null;
 }
 
+function getAreaVariants(areaCode) {
+  const normalized = normalizeAreaCode(areaCode);
+  const match = normalized.match(/^([A-Z]+)(\d+)([A-Z]?)$/);
+  if (!match) return [normalized];
+  const prefix = match[1];
+  const pos = Number(match[2]);
+  const suffix = match[3] || '';
+  const noPad = `${prefix}${pos}${suffix}`;
+  const pad2 = `${prefix}${String(pos).padStart(2, '0')}${suffix}`;
+  return [...new Set([normalized, noPad, pad2])];
+}
+
+function getAreaItems(areaCode, byArea) {
+  const variants = getAreaVariants(areaCode);
+  const merged = [];
+  variants.forEach((key) => {
+    const arr = byArea.get(key);
+    if (arr?.length) merged.push(...arr);
+  });
+  return merged;
+}
+
+function getAreaText(areaCode, byArea, fallback = 'Vazio') {
+  const items = getAreaItems(areaCode, byArea);
+  if (!items.length) return fallback;
+  return items.map((item) => `${item.sku}`).join('; ');
+}
+
 function gerarLayoutVisual() {
   if (!el.layoutGrid || !el.layoutContainer || !el.estruturasGrid) return;
 
   el.layoutGrid.innerHTML = '';
   el.estruturasGrid.innerHTML = '';
-  const colunas = ['TISSUE', 'C', 'BE', 'BD', 'B', 'A', 'LONIL'];
-  const limitePorColuna = {
-    TISSUE: 1,
-    LONIL: 1
+
+  const byArea = new Map();
+  cache.estoque.forEach((row) => {
+    const key = normalizeAreaCode(row.area);
+    if (!byArea.has(key)) byArea.set(key, []);
+    byArea.get(key).push(row);
+  });
+
+  const posicoes = Array.from({ length: 26 }, (_, i) => 26 - i);
+  const bPosicoes = Array.from({ length: 13 }, (_, i) => 13 - i);
+
+  const anotacoesA = { 26: 'Bloqueado', 23: 'Bloqueado', 14: 'Recebimento', 1: 'Carregamento' };
+  const anotacoesC = { 1: 'Sala ADM', 2: 'Retrabalho' };
+
+  const criarLinha = (prefixo, anotacoes = {}) => {
+    const row = document.createElement('div');
+    row.className = 'bp-row';
+
+    posicoes.forEach((pos) => {
+      const area = `${prefixo}${String(pos).padStart(2, '0')}`;
+      const cell = document.createElement('div');
+      cell.className = 'bp-cell';
+      const texto = getAreaText(area, byArea, anotacoes[pos] || 'Vazio');
+      cell.innerHTML = `<strong>${area}</strong><div>${texto}</div>`;
+      row.appendChild(cell);
+    });
+
+    return row;
   };
+
+  const bRow = document.createElement('div');
+  bRow.className = 'bp-row bp-row-b';
+  Array.from({ length: 13 }).forEach(() => {
+    const empty = document.createElement('div');
+    empty.className = 'bp-cell bp-empty';
+    bRow.appendChild(empty);
+  });
+
+  bPosicoes.forEach((pos) => {
+    const areaD = `B${String(pos).padStart(2, '0')}D`;
+    const areaE = `B${String(pos).padStart(2, '0')}E`;
+    const textoD = getAreaText(areaD, byArea, 'Vazio');
+    const textoE = getAreaText(areaE, byArea, 'Vazio');
+    const cell = document.createElement('div');
+    cell.className = 'bp-cell';
+    const extra = pos === 1 ? '<div>Picking</div>' : '';
+    cell.innerHTML = `<strong>${areaD} / ${areaE}</strong><div>D: ${textoD}</div><div>E: ${textoE}</div>${extra}`;
+    bRow.appendChild(cell);
+  });
+
+  const blueprint = document.createElement('div');
+  blueprint.className = 'blueprint-wrap';
+  blueprint.appendChild(criarLinha('A', anotacoesA));
+  blueprint.appendChild(bRow);
+  blueprint.appendChild(criarLinha('C', anotacoesC));
+  el.layoutGrid.appendChild(blueprint);
 
   const parsed = cache.estoque
     .map((item) => ({ item, meta: parseAreaForLayout(item.area) }))
@@ -698,47 +777,6 @@ function gerarLayoutVisual() {
   const parsedEstruturas = parsed.filter((entry) =>
     (entry.meta.bloco === 'A' && entry.meta.pos <= 5) || entry.meta.bloco === 'TUNEL'
   );
-  const parsedLayout = parsed.filter((entry) => !parsedEstruturas.includes(entry));
-
-  colunas.forEach((coluna) => {
-    const colunaEl = document.createElement('div');
-    colunaEl.className = 'layout-coluna';
-    colunaEl.innerHTML = `<h3>${coluna}</h3>`;
-
-    const maiorPosicaoNaColuna = Math.max(
-      0,
-      ...parsedLayout.filter((entry) => entry.meta.bloco === coluna).map((entry) => entry.meta.pos)
-    );
-
-    const minLinha = coluna === 'A' ? 6 : 1;
-    const maxLinha = limitePorColuna[coluna] ?? Math.max(12, maiorPosicaoNaColuna, minLinha);
-
-    for (let i = minLinha; i <= maxLinha; i += 1) {
-      const cell = document.createElement('div');
-      cell.className = 'celula vazio';
-      const areaNome = `${coluna}${i}`;
-
-      const itens = parsedLayout
-        .filter((entry) => entry.meta.bloco === coluna && entry.meta.pos === i)
-        .map((entry) => entry.item);
-
-      let conteudo = `<strong>${areaNome}</strong>`;
-      if (itens.length) {
-        cell.classList.remove('vazio');
-        cell.classList.add('ocupado');
-
-        itens.forEach((item) => {
-          const tipoClass = `material-${normalizeText(item.tipo).toLowerCase()}`;
-          conteudo += `<div class="sku ${tipoClass}">SKU: ${item.sku}<br />${item.paletes} pal (${item.tipo})</div>`;
-        });
-      }
-
-      cell.innerHTML = conteudo;
-      colunaEl.appendChild(cell);
-    }
-
-    el.layoutGrid.appendChild(colunaEl);
-  });
 
   const totaisEstruturas = parsedEstruturas.reduce((acc, entry) => {
     const chave = entry.meta.bloco === 'TUNEL' ? `TÚNEL ${entry.meta.pos}` : `A${entry.meta.pos}`;
@@ -760,7 +798,6 @@ function gerarLayoutVisual() {
   }
 
   renderSemanticLayout();
-
   el.layoutContainer.classList.remove('hidden');
 }
 
