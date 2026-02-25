@@ -29,6 +29,8 @@ const el = {
   ocupacaoProduto: document.getElementById('ocupacaoProduto'),
   ocupacaoStatus: document.getElementById('ocupacaoStatus'),
   ocupacaoBody: document.querySelector('#ocupacaoTable tbody'),
+  g1DetalheBody: document.querySelector('#g1DetalheTable tbody'),
+  g1TotaisStatus: document.getElementById('g1TotaisStatus'),
   turnoForm: document.getElementById('turnoForm'),
   turnoFile: document.getElementById('turnoFile'),
   turnoStatus: document.getElementById('turnoStatus'),
@@ -66,6 +68,17 @@ const capacidadeGalpoes = {
   G2: 1728,
   G3: 1112
 };
+
+const g1Modelo = [
+  { bloco: 'A', posicoes: 22, palletPosicao: 40, bloqueado: 80, terceiros: 400 },
+  { bloco: 'B', posicoes: 22, palletPosicao: 40, bloqueado: 30, terceiros: 0 },
+  { bloco: 'C', posicoes: 22, palletPosicao: 32, bloqueado: 16, terceiros: 0 },
+  { bloco: 'D', posicoes: 22, palletPosicao: 48, bloqueado: 20, terceiros: 412 },
+  { bloco: 'H1', posicoes: 12, palletPosicao: 40, bloqueado: 40, terceiros: 120 },
+  { bloco: 'H2', posicoes: 2, palletPosicao: 32, bloqueado: 16, terceiros: 0 },
+  { bloco: 'H3', posicoes: 4, palletPosicao: 48, bloqueado: 16, terceiros: 0 },
+  { bloco: 'PP', posicoes: 1, palletPosicao: 364, bloqueado: 0, terceiros: 53 }
+];
 
 const capacidadePlanejamento = {
   A: 80,
@@ -400,6 +413,54 @@ function renderOcupacao() {
 
   const usandoManual = (Number.isFinite(tissueManual) && tissueManual >= 0) || (Number.isFinite(lonilManual) && lonilManual >= 0);
   setStatus(el.ocupacaoStatus, usandoManual ? 'Ocupação atualizada com contagem manual.' : 'Ocupação atualizada com dados do sistema.', 'success');
+}
+
+function calcularLinhaG1(item) {
+  const total = Math.max(0, (Number(item.posicoes) * Number(item.palletPosicao)) - Number(item.bloqueado));
+  const disponivel = Math.max(0, total - Number(item.terceiros));
+  return { total, disponivel };
+}
+
+function renderG1Detalhe() {
+  if (!el.g1DetalheBody) return;
+  el.g1DetalheBody.innerHTML = '';
+
+  let totalGeral = 0;
+  let terceirosGeral = 0;
+  let disponivelGeral = 0;
+
+  g1Modelo.forEach((item) => {
+    const { total, disponivel } = calcularLinhaG1(item);
+    totalGeral += total;
+    terceirosGeral += Number(item.terceiros);
+    disponivelGeral += disponivel;
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${item.bloco}</td>
+      <td>${item.posicoes}</td>
+      <td>${item.palletPosicao}</td>
+      <td><input data-bloco="${item.bloco}" data-field="bloqueado" type="number" min="0" value="${item.bloqueado}" /></td>
+      <td>${total}</td>
+      <td><input data-bloco="${item.bloco}" data-field="terceiros" type="number" min="0" value="${item.terceiros}" /></td>
+      <td>${disponivel}</td>
+    `;
+    el.g1DetalheBody.appendChild(tr);
+  });
+
+  setStatus(el.g1TotaisStatus, `G1 total: ${totalGeral} | terceiros: ${terceirosGeral} | disponível: ${disponivelGeral}.`, 'success');
+
+  el.g1DetalheBody.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('change', (event) => {
+      const bloco = event.target.dataset.bloco;
+      const field = event.target.dataset.field;
+      const row = g1Modelo.find((i) => i.bloco === bloco);
+      if (!row) return;
+      row[field] = Math.max(0, Number(event.target.value || 0));
+      renderG1Detalhe();
+      renderOcupacao();
+    });
+  });
 }
 
 function renderMovimentacoes() {
@@ -1021,6 +1082,7 @@ function setupOcupacao() {
   el.ocupacaoForm?.addEventListener('submit', (event) => {
     event.preventDefault();
     renderOcupacao();
+    renderG1Detalhe();
   });
 }
 
@@ -1029,6 +1091,7 @@ function init() {
   setupExports();
   setupPlanejamento();
   setupOcupacao();
+  renderG1Detalhe();
   renderTurnoHistory();
   el.turnoForm?.addEventListener('submit', handleTurnoSubmit);
   el.paleteIncompletoToggle?.addEventListener('change', (event) => {
