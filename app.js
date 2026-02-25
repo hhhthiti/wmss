@@ -7,6 +7,8 @@ const el = {
   supabaseUrl: document.getElementById('supabaseUrl'),
   supabaseKey: document.getElementById('supabaseKey'),
   connectBtn: document.getElementById('connectBtn'),
+  toggleConfigBtn: document.getElementById('toggleConfigBtn'),
+  configFields: document.getElementById('configFields'),
   connectionStatus: document.getElementById('connectionStatus'),
   feedback: document.getElementById('feedback'),
   estoqueForm: document.getElementById('estoqueForm'),
@@ -20,6 +22,10 @@ const el = {
   consultaAreaBody: document.querySelector('#consultaAreaTable tbody'),
   totaisSkuBody: document.querySelector('#totaisSkuTable tbody'),
   sobrasB01Body: document.querySelector('#sobrasB01Table tbody'),
+  planejamentoForm: document.getElementById('planejamentoForm'),
+  previsaoEntrada: document.getElementById('previsaoEntrada'),
+  planejamentoResultado: document.getElementById('planejamentoResultado'),
+  planejamentoBody: document.querySelector('#planejamentoTable tbody'),
   movimentacoesBody: document.querySelector('#movimentacoesTable tbody'),
   exportCadastroBtn: document.getElementById('exportCadastroBtn'),
   exportConsultaBtn: document.getElementById('exportConsultaBtn'),
@@ -37,6 +43,13 @@ const el = {
 
 let supabaseClient;
 let cache = { estoque: [], movimentacoes: [] };
+
+const capacidadePlanejamento = {
+  A: 80,
+  BD: 40,
+  BE: 32,
+  C: 48
+};
 
 el.supabaseUrl.value = defaultConfig.url;
 el.supabaseKey.value = defaultConfig.key;
@@ -68,6 +81,69 @@ function shouldDeleteByAction(actionValue) {
 
 function isRetrabalhoArea(area) {
   return normalizeAreaCode(area) === 'C01';
+}
+
+function parseIncomingForecast(text) {
+  return String(text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [skuRaw, paletesRaw] = line.split(',').map((part) => part?.trim());
+      return { sku: Number(skuRaw), paletes: Number(paletesRaw) };
+    })
+    .filter((item) => Number.isFinite(item.sku) && Number.isFinite(item.paletes) && item.paletes > 0);
+}
+
+function mapAreaToPlanejamentoBloco(area) {
+  const normalized = normalizeAreaCode(area);
+  if (/^A\d+$/.test(normalized)) return 'A';
+  if (/^B\d+D$/.test(normalized) || /^BD\d+$/.test(normalized)) return 'BD';
+  if (/^B\d+E$/.test(normalized) || /^BE\d+$/.test(normalized)) return 'BE';
+  if (/^C\d+$/.test(normalized)) return 'C';
+  return null;
+}
+
+function getPlanejamentoOcupacaoAtual() {
+  const ocupado = { A: 0, BD: 0, BE: 0, C: 0 };
+  cache.estoque.forEach((row) => {
+    const bloco = mapAreaToPlanejamentoBloco(row.area);
+    if (!bloco || isRetrabalhoArea(row.area)) return;
+    ocupado[bloco] += Number(row.paletes || 0);
+  });
+  return ocupado;
+}
+
+function renderPlanejamentoTable(ocupado, previsaoPaletes = 0) {
+  if (!el.planejamentoBody) return;
+  el.planejamentoBody.innerHTML = '';
+
+  const ordem = ['A', 'BD', 'BE', 'C'];
+  const totalLivre = ordem.reduce((acc, bloco) => acc + Math.max(0, capacidadePlanejamento[bloco] - (ocupado[bloco] || 0)), 0);
+  let restante = previsaoPaletes;
+
+  ordem.forEach((bloco) => {
+    const cap = capacidadePlanejamento[bloco];
+    const ocup = ocupado[bloco] || 0;
+    const livre = Math.max(0, cap - ocup);
+    const alocar = Math.min(restante, livre);
+    restante -= alocar;
+    const apos = ocup + alocar;
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${bloco}</td><td>${cap}</td><td>${ocup}</td><td>${livre}</td><td>${apos}</td><td>${restante >= 0 && alocar === 0 && previsaoPaletes > 0 ? 'Considerar desfazer blocado' : 'OK'}</td>`;
+    el.planejamentoBody.appendChild(tr);
+  });
+
+  if (el.planejamentoResultado) {
+    if (!previsaoPaletes) {
+      setStatus(el.planejamentoResultado, `Capacidade livre total hoje: ${totalLivre} paletes.`, 'success');
+    } else if (restante > 0) {
+      setStatus(el.planejamentoResultado, `Faltam ${restante} paletes de espaço. Sugestão: desfazer blocados para abrir capacidade.`, 'error');
+    } else {
+      setStatus(el.planejamentoResultado, `Previsão comportada. Entrada prevista: ${previsaoPaletes} paletes.`, 'success');
+    }
+  }
 }
 
 function createClient() {
@@ -237,6 +313,7 @@ function renderConsulta() {
   });
 
   renderSobrasB01();
+  renderPlanejamentoTable(getPlanejamentoOcupacaoAtual(), 0);
 }
 
 function renderMovimentacoes() {
@@ -655,9 +732,29 @@ function setupTabs() {
   });
 }
 
+function setupPlanejamento() {
+  el.planejamentoForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const itens = parseIncomingForecast(el.previsaoEntrada?.value);
+    const totalPrevisto = itens.reduce((acc, item) => acc + item.paletes, 0);
+    renderPlanejamentoTable(getPlanejamentoOcupacaoAtual(), totalPrevisto);
+  });
+}
+
+function setupConfigToggle() {
+  el.toggleConfigBtn?.addEventListener('click', () => {
+    if (!el.configFields) return;
+    const isHidden = el.configFields.classList.toggle('hidden');
+    el.connectBtn?.classList.toggle('hidden', isHidden);
+    el.toggleConfigBtn.textContent = isHidden ? 'Mostrar configuração' : 'Ocultar configuração';
+  });
+}
+
 function init() {
   setupTabs();
   setupExports();
+  setupPlanejamento();
+  setupConfigToggle();
   el.connectBtn.addEventListener('click', createClient);
   el.estoqueForm.addEventListener('submit', handleEstoqueSubmit);
   el.produtoForm.addEventListener('submit', handleProdutoSubmit);

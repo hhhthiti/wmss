@@ -58,6 +58,21 @@ input, select, button {
   font-size: 0.95rem;
 }
 
+textarea {
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid #ccd4dd;
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+
+.config-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+}
+
 button {
   background: #1f4d8f;
   color: #fff;

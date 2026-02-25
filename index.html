@@ -18,18 +18,21 @@
 
     <main>
       <section class="card config-card">
-        <h2>Configuração Supabase</h2>
-        <div class="grid two-col">
+        <div class="config-header">
+          <h2>Configuração Supabase</h2>
+          <button id="toggleConfigBtn" type="button" class="secondary">Mostrar configuração</button>
+        </div>
+        <div id="configFields" class="grid two-col hidden">
           <label>
             Project URL
-            <input id="supabaseUrl" type="url" />
+            <input id="supabaseUrl" type="url" readonly />
           </label>
           <label>
             Publishable Key
-            <input id="supabaseKey" type="text" />
+            <input id="supabaseKey" type="text" readonly />
           </label>
         </div>
-        <button id="connectBtn">Conectar</button>
+        <button id="connectBtn" class="hidden">Conectar</button>
         <p id="connectionStatus" class="status"></p>
       </section>
 
@@ -101,6 +104,27 @@
           </label>
           <div class="layout-actions">
             <button id="exportEspelhoBtn" class="secondary">Baixar planilha espelho agora</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Planejamento de recebimento (NF)</h2>
+          <p class="helper-text">Informe previsão de chegada por SKU para estimar ocupação e blocados que precisam ser desfeitos.</p>
+          <form id="planejamentoForm" class="grid">
+            <label>
+              Previsão de chegada (uma linha por SKU: <code>SKU,PALETES</code>)
+              <textarea id="previsaoEntrada" rows="5" placeholder="20104409,30&#10;30152626,18"></textarea>
+            </label>
+            <div class="actions">
+              <button type="submit">Calcular planejamento</button>
+            </div>
+          </form>
+          <div id="planejamentoResultado" class="status"></div>
+          <div class="table-wrapper">
+            <table id="planejamentoTable">
+              <thead><tr><th>Bloco</th><th>Capacidade</th><th>Ocupado</th><th>Livre</th><th>Após NF</th><th>Ação</th></tr></thead>
+              <tbody></tbody>
+            </table>
           </div>
         </div>
 
