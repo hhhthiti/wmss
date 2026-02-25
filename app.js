@@ -23,6 +23,12 @@ const el = {
   previsaoEntrada: document.getElementById('previsaoEntrada'),
   planejamentoResultado: document.getElementById('planejamentoResultado'),
   planejamentoBody: document.querySelector('#planejamentoTable tbody'),
+  ocupacaoForm: document.getElementById('ocupacaoForm'),
+  tissuePercent: document.getElementById('tissuePercent'),
+  lonilPercent: document.getElementById('lonilPercent'),
+  ocupacaoProduto: document.getElementById('ocupacaoProduto'),
+  ocupacaoStatus: document.getElementById('ocupacaoStatus'),
+  ocupacaoBody: document.querySelector('#ocupacaoTable tbody'),
   turnoForm: document.getElementById('turnoForm'),
   turnoFile: document.getElementById('turnoFile'),
   turnoStatus: document.getElementById('turnoStatus'),
@@ -47,6 +53,19 @@ let supabaseClient;
 let cache = { estoque: [], movimentacoes: [], produtos: [] };
 let fracionadoMap = {};
 let turnoSnapshots = JSON.parse(localStorage.getItem('wmss_turno_snapshots') || '[]');
+
+const manualOcupados = new Set([
+  'A14', 'A15', 'A16', 'A17', 'A18', 'A19',
+  'B21D', 'B20D', 'B22D', 'B20E',
+  'C15', 'C14', 'C12', 'C11', 'C10', 'C09', 'C08',
+  'A09', 'A08', 'A07', 'A06', 'A05', 'A04', 'A03'
+]);
+
+const capacidadeGalpoes = {
+  G1: 3417,
+  G2: 1728,
+  G3: 1112
+};
 
 const capacidadePlanejamento = {
   A: 80,
@@ -330,6 +349,56 @@ function renderConsulta() {
 
   renderSobrasB01();
   renderPlanejamentoTable(getPlanejamentoOcupacaoAtual(), 0);
+  renderOcupacao();
+}
+
+function getOccupiedByWarehouse() {
+  let g1 = 0;
+  let g2 = 0;
+  let g3 = 0;
+
+  cache.estoque.forEach((row) => {
+    const area = normalizeAreaCode(row.area);
+    const pal = Number(row.paletes || 0);
+    if (/^TISSUE\d+$/.test(area)) {
+      g2 += pal;
+    } else if (/^LONIL\d+$/.test(area)) {
+      g3 += pal;
+    } else if (/^(A|B|C|D|BE|BD)\d+[ED]?$/.test(area)) {
+      g1 += pal;
+    }
+  });
+
+  return { g1, g2, g3 };
+}
+
+function renderOcupacao() {
+  if (!el.ocupacaoBody) return;
+  el.ocupacaoBody.innerHTML = '';
+
+  const { g1, g2, g3 } = getOccupiedByWarehouse();
+  const tissuePercent = Number(el.tissuePercent?.value || 0);
+  const lonilPercent = Number(el.lonilPercent?.value || 0);
+  const produto = el.ocupacaoProduto?.value?.trim() || 'N/D';
+
+  const g2Estimado = g2 > 0 ? g2 : Math.round((capacidadeGalpoes.G2 * tissuePercent) / 100);
+  const g3Estimado = g3 > 0 ? g3 : Math.round((capacidadeGalpoes.G3 * lonilPercent) / 100);
+
+  const rows = [
+    ['G1 - Principal', capacidadeGalpoes.G1, g1],
+    [`G2 - Tissue (${produto})`, capacidadeGalpoes.G2, g2Estimado],
+    [`G3 - Lonil (${produto})`, capacidadeGalpoes.G3, g3Estimado]
+  ];
+
+  rows.forEach(([nome, capacidade, ocupado]) => {
+    const disponivel = Math.max(0, capacidade - ocupado);
+    const percentual = capacidade ? ((ocupado / capacidade) * 100).toFixed(1) : '0.0';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${nome}</td><td>${capacidade}</td><td>${ocupado}</td><td>${disponivel}</td><td>${percentual}%</td>`;
+    el.ocupacaoBody.appendChild(tr);
+  });
+
+  setStatus(el.ocupacaoStatus, 'Ocupação atualizada.', 'success');
 }
 
 function renderMovimentacoes() {
@@ -722,7 +791,7 @@ function gerarLayoutVisual() {
   });
 
   const posicoes = Array.from({ length: 26 }, (_, i) => 26 - i);
-  const bPosicoes = Array.from({ length: 13 }, (_, i) => 13 - i);
+  const bPosicoes = Array.from({ length: 22 }, (_, i) => 22 - i);
 
   const anotacoesA = { 26: 'Bloqueado', 23: 'Bloqueado', 14: 'Recebimento', 1: 'Carregamento' };
   const anotacoesC = { 1: 'Sala ADM', 2: 'Retrabalho' };
@@ -735,7 +804,8 @@ function gerarLayoutVisual() {
       const area = `${prefixo}${String(pos).padStart(2, '0')}`;
       const cell = document.createElement('div');
       cell.className = 'bp-cell';
-      const texto = getAreaText(area, byArea, anotacoes[pos] || 'Vazio');
+      const fallback = manualOcupados.has(area) ? 'Ocupado' : (anotacoes[pos] || 'Vazio');
+      const texto = getAreaText(area, byArea, fallback);
       cell.innerHTML = `<strong>${area}</strong><div>${texto}</div>`;
       row.appendChild(cell);
     });
@@ -745,7 +815,7 @@ function gerarLayoutVisual() {
 
   const bRow = document.createElement('div');
   bRow.className = 'bp-row bp-row-b';
-  Array.from({ length: 13 }).forEach(() => {
+  Array.from({ length: 4 }).forEach(() => {
     const empty = document.createElement('div');
     empty.className = 'bp-cell bp-empty';
     bRow.appendChild(empty);
@@ -754,8 +824,8 @@ function gerarLayoutVisual() {
   bPosicoes.forEach((pos) => {
     const areaD = `B${String(pos).padStart(2, '0')}D`;
     const areaE = `B${String(pos).padStart(2, '0')}E`;
-    const textoD = getAreaText(areaD, byArea, 'Vazio');
-    const textoE = getAreaText(areaE, byArea, 'Vazio');
+    const textoD = getAreaText(areaD, byArea, manualOcupados.has(areaD) ? 'Ocupado' : 'Vazio');
+    const textoE = getAreaText(areaE, byArea, manualOcupados.has(areaE) ? 'Ocupado' : 'Vazio');
     const cell = document.createElement('div');
     cell.className = 'bp-cell';
     const extra = pos === 1 ? '<div>Picking</div>' : '';
@@ -946,10 +1016,18 @@ function setupPlanejamento() {
   });
 }
 
+function setupOcupacao() {
+  el.ocupacaoForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    renderOcupacao();
+  });
+}
+
 function init() {
   setupTabs();
   setupExports();
   setupPlanejamento();
+  setupOcupacao();
   renderTurnoHistory();
   el.turnoForm?.addEventListener('submit', handleTurnoSubmit);
   el.paleteIncompletoToggle?.addEventListener('change', (event) => {

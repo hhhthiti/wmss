@@ -24,6 +24,7 @@
         <button class="tab-btn" data-tab="consulta">Consulta</button>
         <button class="tab-btn" data-tab="expedicao">Conferência de turno</button>
         <button class="tab-btn" data-tab="planejamento">Planejamento</button>
+        <button class="tab-btn" data-tab="ocupacao">Ocupação</button>
       </nav>
 
       <section id="cadastro" class="tab-content active">
@@ -205,6 +206,32 @@
           <div class="table-wrapper">
             <table id="planejamentoTable">
               <thead><tr><th>Bloco</th><th>Capacidade</th><th>Ocupado</th><th>Livre</th><th>Após NF</th><th>Ação</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="ocupacao" class="tab-content">
+        <div class="card">
+          <h2>Cálculo de ocupação do galpão</h2>
+          <p class="helper-text">Resumo estimado por galpão. Quando não houver endereço no estoque para Tissue/Lonil, use o percentual manual.</p>
+          <form id="ocupacaoForm" class="grid two-col">
+            <label>Tissue (%)
+              <input id="tissuePercent" type="number" min="0" max="100" value="60" />
+            </label>
+            <label>Lonil (%)
+              <input id="lonilPercent" type="number" min="0" max="100" value="65" />
+            </label>
+            <label>Produto de referência
+              <input id="ocupacaoProduto" type="text" value="Suzano" />
+            </label>
+            <div class="actions"><button type="submit">Atualizar ocupação</button></div>
+          </form>
+          <p id="ocupacaoStatus" class="status"></p>
+          <div class="table-wrapper">
+            <table id="ocupacaoTable">
+              <thead><tr><th>Galpão</th><th>Capacidade útil</th><th>Ocupado</th><th>Disponível</th><th>%</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
