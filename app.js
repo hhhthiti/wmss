@@ -24,8 +24,8 @@ const el = {
   planejamentoResultado: document.getElementById('planejamentoResultado'),
   planejamentoBody: document.querySelector('#planejamentoTable tbody'),
   ocupacaoForm: document.getElementById('ocupacaoForm'),
-  tissuePercent: document.getElementById('tissuePercent'),
-  lonilPercent: document.getElementById('lonilPercent'),
+  tissueOcupado: document.getElementById('tissueOcupado'),
+  lonilOcupado: document.getElementById('lonilOcupado'),
   ocupacaoProduto: document.getElementById('ocupacaoProduto'),
   ocupacaoStatus: document.getElementById('ocupacaoStatus'),
   ocupacaoBody: document.querySelector('#ocupacaoTable tbody'),
@@ -377,12 +377,12 @@ function renderOcupacao() {
   el.ocupacaoBody.innerHTML = '';
 
   const { g1, g2, g3 } = getOccupiedByWarehouse();
-  const tissuePercent = Number(el.tissuePercent?.value || 0);
-  const lonilPercent = Number(el.lonilPercent?.value || 0);
+  const tissueManual = Number(el.tissueOcupado?.value);
+  const lonilManual = Number(el.lonilOcupado?.value);
   const produto = el.ocupacaoProduto?.value?.trim() || 'N/D';
 
-  const g2Estimado = g2 > 0 ? g2 : Math.round((capacidadeGalpoes.G2 * tissuePercent) / 100);
-  const g3Estimado = g3 > 0 ? g3 : Math.round((capacidadeGalpoes.G3 * lonilPercent) / 100);
+  const g2Estimado = Number.isFinite(tissueManual) && tissueManual >= 0 ? tissueManual : g2;
+  const g3Estimado = Number.isFinite(lonilManual) && lonilManual >= 0 ? lonilManual : g3;
 
   const rows = [
     ['G1 - Principal', capacidadeGalpoes.G1, g1],
@@ -398,7 +398,8 @@ function renderOcupacao() {
     el.ocupacaoBody.appendChild(tr);
   });
 
-  setStatus(el.ocupacaoStatus, 'Ocupação atualizada.', 'success');
+  const usandoManual = (Number.isFinite(tissueManual) && tissueManual >= 0) || (Number.isFinite(lonilManual) && lonilManual >= 0);
+  setStatus(el.ocupacaoStatus, usandoManual ? 'Ocupação atualizada com contagem manual.' : 'Ocupação atualizada com dados do sistema.', 'success');
 }
 
 function renderMovimentacoes() {

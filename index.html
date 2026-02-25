@@ -215,13 +215,13 @@
       <section id="ocupacao" class="tab-content">
         <div class="card">
           <h2>Cálculo de ocupação do galpão</h2>
-          <p class="helper-text">Resumo estimado por galpão. Quando não houver endereço no estoque para Tissue/Lonil, use o percentual manual.</p>
+          <p class="helper-text">Informe paletes ocupados quando fizer contagem manual. O percentual é calculado automaticamente.</p>
           <form id="ocupacaoForm" class="grid two-col">
-            <label>Tissue (%)
-              <input id="tissuePercent" type="number" min="0" max="100" value="60" />
+            <label>Tissue (paletes ocupados)
+              <input id="tissueOcupado" type="number" min="0" placeholder="Ex.: 792" />
             </label>
-            <label>Lonil (%)
-              <input id="lonilPercent" type="number" min="0" max="100" value="65" />
+            <label>Lonil (paletes ocupados)
+              <input id="lonilOcupado" type="number" min="0" placeholder="Ex.: 412" />
             </label>
             <label>Produto de referência
               <input id="ocupacaoProduto" type="text" value="Suzano" />
