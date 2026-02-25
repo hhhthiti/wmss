@@ -4,11 +4,8 @@ const defaultConfig = {
 };
 
 const el = {
-  supabaseUrl: document.getElementById('supabaseUrl'),
-  supabaseKey: document.getElementById('supabaseKey'),
-  connectBtn: document.getElementById('connectBtn'),
-  toggleConfigBtn: document.getElementById('toggleConfigBtn'),
-  configFields: document.getElementById('configFields'),
+  paleteIncompletoToggle: document.getElementById('paleteIncompletoToggle'),
+  paleteIncompletoFields: document.getElementById('paleteIncompletoFields'),
   connectionStatus: document.getElementById('connectionStatus'),
   feedback: document.getElementById('feedback'),
   estoqueForm: document.getElementById('estoqueForm'),
@@ -26,6 +23,10 @@ const el = {
   previsaoEntrada: document.getElementById('previsaoEntrada'),
   planejamentoResultado: document.getElementById('planejamentoResultado'),
   planejamentoBody: document.querySelector('#planejamentoTable tbody'),
+  turnoForm: document.getElementById('turnoForm'),
+  turnoFile: document.getElementById('turnoFile'),
+  turnoStatus: document.getElementById('turnoStatus'),
+  turnoSkuBody: document.querySelector('#turnoSkuTable tbody'),
   movimentacoesBody: document.querySelector('#movimentacoesTable tbody'),
   exportCadastroBtn: document.getElementById('exportCadastroBtn'),
   exportConsultaBtn: document.getElementById('exportConsultaBtn'),
@@ -42,7 +43,8 @@ const el = {
 };
 
 let supabaseClient;
-let cache = { estoque: [], movimentacoes: [] };
+let cache = { estoque: [], movimentacoes: [], produtos: [] };
+let fracionadoMap = {};
 
 const capacidadePlanejamento = {
   A: 80,
@@ -51,13 +53,12 @@ const capacidadePlanejamento = {
   C: 48
 };
 
-el.supabaseUrl.value = defaultConfig.url;
-el.supabaseKey.value = defaultConfig.key;
-
 const autoExportEnabled = localStorage.getItem('wmss_auto_export') === '1';
 if (el.autoExportToggle) el.autoExportToggle.checked = autoExportEnabled;
+fracionadoMap = JSON.parse(localStorage.getItem('wmss_fracionado_map') || '{}');
 
 function setStatus(target, message, type = '') {
+  if (!target) return;
   target.textContent = message;
   target.className = `status ${type}`.trim();
 }
@@ -72,6 +73,16 @@ function normalizeText(value) {
 
 function normalizeAreaCode(value) {
   return normalizeText(value).replace(/[-_\s]/g, '');
+}
+
+function estoqueKey(area, sku, tipo) {
+  return `${normalizeAreaCode(area)}|${Number(sku)}|${normalizeText(tipo)}`;
+}
+
+function getFardosPorPalete(sku) {
+  const produto = cache.produtos.find((item) => Number(item.sku) === Number(sku));
+  const valor = Number(produto?.fardos_por_palete);
+  return Number.isFinite(valor) && valor > 0 ? valor : null;
 }
 
 function shouldDeleteByAction(actionValue) {
@@ -147,13 +158,7 @@ function renderPlanejamentoTable(ocupado, previsaoPaletes = 0) {
 }
 
 function createClient() {
-  const url = el.supabaseUrl.value.trim();
-  const key = el.supabaseKey.value.trim();
-  if (!url || !key) {
-    setStatus(el.connectionStatus, 'Informe URL e chave para conectar.', 'error');
-    return;
-  }
-  supabaseClient = window.supabase.createClient(url, key);
+  supabaseClient = window.supabase.createClient(defaultConfig.url, defaultConfig.key);
   setStatus(el.connectionStatus, 'Conectado ao Supabase.', 'success');
   loadAll();
 }
@@ -183,10 +188,19 @@ async function loadMovimentacoes() {
   renderMovimentacoes();
 }
 
+async function loadProdutos() {
+  const { data, error } = await supabaseClient
+    .from('produtos')
+    .select('sku, fardos_por_palete');
+
+  if (error) throw error;
+  cache.produtos = data ?? [];
+}
+
 async function loadAll() {
   if (!supabaseClient) return;
   try {
-    await Promise.all([loadEstoque(), loadMovimentacoes()]);
+    await Promise.all([loadEstoque(), loadMovimentacoes(), loadProdutos()]);
     showFeedback('Dados carregados com sucesso.');
   } catch (error) {
     showFeedback(`Erro ao carregar dados: ${error.message}`, 'error');
@@ -342,9 +356,38 @@ async function handleEstoqueSubmit(event) {
     paletes: Number(formData.get('paletes'))
   };
 
+  const fardosInput = Number(formData.get('fardos_por_palete'));
+  const fardosExistente = getFardosPorPalete(payload.sku);
+  if (!fardosExistente && (!Number.isFinite(fardosInput) || fardosInput <= 0)) {
+    return showFeedback('SKU sem fardos por palete cadastrado. Informe no campo "Fardos por palete (SKU novo)".', 'error');
+  }
+
+  const paletesIncompletos = Number(formData.get('paletes_incompletos'));
+  const fardosIncompletos = Number(formData.get('fardos_incompletos'));
+  const incompletoAtivo = el.paleteIncompletoToggle?.checked;
+
   try {
+    if (!fardosExistente && Number.isFinite(fardosInput) && fardosInput > 0) {
+      const { error: produtoError } = await supabaseClient
+        .from('produtos')
+        .upsert({ sku: payload.sku, fardos_por_palete: fardosInput });
+      if (produtoError) throw produtoError;
+    }
+
     const { error } = await supabaseClient.from('estoque_area').upsert(payload);
     if (error) throw error;
+
+    const chave = estoqueKey(payload.area, payload.sku, payload.tipo);
+    if (incompletoAtivo) {
+      if (!Number.isFinite(paletesIncompletos) || paletesIncompletos <= 0 || !Number.isFinite(fardosIncompletos) || fardosIncompletos <= 0) {
+        return showFeedback('Informe quantidade de paletes incompletos e total de fardos.', 'error');
+      }
+      fracionadoMap[chave] = { paletes_incompletos: paletesIncompletos, fardos_incompletos: fardosIncompletos };
+    } else {
+      delete fracionadoMap[chave];
+    }
+    localStorage.setItem('wmss_fracionado_map', JSON.stringify(fracionadoMap));
+
     showFeedback('Estoque salvo com sucesso.');
     event.target.reset();
     await loadEstoque();
@@ -430,6 +473,66 @@ async function handleExpedicaoSubmit(event) {
     maybeAutoExport();
   } catch (error) {
     showFeedback(`Erro na expedição: ${error.message}`, 'error');
+  }
+}
+
+function consolidarPorChave(rows) {
+  return rows.reduce((acc, row) => {
+    const key = estoqueKey(row.area, row.sku, row.tipo);
+    acc[key] = (acc[key] || 0) + Number(row.paletes || 0);
+    return acc;
+  }, {});
+}
+
+async function handleTurnoSubmit(event) {
+  event.preventDefault();
+  const file = el.turnoFile?.files?.[0];
+  if (!file) return setStatus(el.turnoStatus, 'Selecione a planilha de contagem final.', 'error');
+
+  try {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' }).map(mapImportRow);
+
+    const atual = consolidarPorChave(cache.estoque);
+    const finalTurno = consolidarPorChave(rows);
+    const saidaSkuTipo = {};
+    const missing = new Set();
+
+    Object.keys(atual).forEach((key) => {
+      const saiu = Math.max(0, Number(atual[key] || 0) - Number(finalTurno[key] || 0));
+      if (!saiu) return;
+      const [, sku, tipo] = key.split('|');
+      const skuTipo = `${sku}|${tipo}`;
+      saidaSkuTipo[skuTipo] = (saidaSkuTipo[skuTipo] || 0) + saiu;
+    });
+
+    el.turnoSkuBody.innerHTML = '';
+    Object.entries(saidaSkuTipo)
+      .sort(([a], [b]) => a.localeCompare(b, 'pt-BR', { numeric: true }))
+      .forEach(([skuTipo, paletes]) => {
+        const [sku, tipo] = skuTipo.split('|');
+        const fpp = getFardosPorPalete(Number(sku));
+        if (!fpp) missing.add(sku);
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${sku}</td><td>${tipo}</td><td>${paletes}</td><td>${fpp ? paletes * fpp : 'N/D'}</td>`;
+        el.turnoSkuBody.appendChild(tr);
+      });
+
+    if (!Object.keys(saidaSkuTipo).length) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td colspan="4">Nenhuma saída detectada na comparação.</td>';
+      el.turnoSkuBody.appendChild(tr);
+    }
+
+    if (missing.size) {
+      setStatus(el.turnoStatus, `Comparação concluída. SKU(s) sem fardos por palete: ${[...missing].join(', ')}.`, 'error');
+    } else {
+      setStatus(el.turnoStatus, 'Comparação concluída com sucesso.', 'success');
+    }
+  } catch (error) {
+    setStatus(el.turnoStatus, `Erro ao processar planilha do turno: ${error.message}`, 'error');
   }
 }
 
@@ -661,20 +764,47 @@ async function exportPlanilhaEspelho() {
     await loadAll();
   }
 
+  const { rows: estoqueExportRows, missingSkus } = buildEstoqueExportRows();
   const totaisEstoque = groupTotalBySku(cache.estoque, { excludeRetrabalho: true });
   const totaisExpedido = groupTotalBySku(cache.movimentacoes);
 
   exportWorkbook('planilha_espelho_wmss.xlsx', [
-    { name: 'Estoque', data: cache.estoque },
+    { name: 'Estoque', data: estoqueExportRows },
     { name: 'Totais_SKU', data: totaisEstoque },
     { name: 'Movimentacoes', data: cache.movimentacoes },
     { name: 'Totais_Expedido_SKU', data: totaisExpedido }
   ]);
+
+  if (missingSkus.length) {
+    showFeedback(`Aviso: SKU(s) sem fardos por palete cadastrado: ${missingSkus.join(', ')}.`, 'error');
+  }
 }
 
 function maybeAutoExport() {
   if (!el.autoExportToggle?.checked) return;
   exportPlanilhaEspelho();
+}
+
+function buildEstoqueExportRows() {
+  const missing = new Set();
+  const rows = cache.estoque.map((row) => {
+    const chave = estoqueKey(row.area, row.sku, row.tipo);
+    const frac = fracionadoMap[chave];
+    const fpp = getFardosPorPalete(row.sku);
+    if (!fpp) missing.add(row.sku);
+    const paletesIncompletos = Number(frac?.paletes_incompletos || 0);
+    const fardosIncompletos = Number(frac?.fardos_incompletos || 0);
+    const paletesContabilizados = Math.max(0, Number(row.paletes) - paletesIncompletos);
+    const fardosTotaisBlocado = fpp ? (paletesContabilizados * fpp) + fardosIncompletos : null;
+    return {
+      ...row,
+      paletes_contabilizados: paletesContabilizados,
+      paletes_incompletos: paletesIncompletos,
+      fardos_incompletos: fardosIncompletos,
+      fardos_totais_blocado: fardosTotaisBlocado
+    };
+  });
+  return { rows, missingSkus: [...missing] };
 }
 
 function exportWorkbook(fileName, sheets) {
@@ -688,19 +818,23 @@ function exportWorkbook(fileName, sheets) {
 
 function setupExports() {
   el.exportCadastroBtn.addEventListener('click', () => {
+    const { rows: estoqueExportRows, missingSkus } = buildEstoqueExportRows();
     const totais = groupTotalBySku(cache.estoque, { excludeRetrabalho: true });
     exportWorkbook('cadastro_estoque.xlsx', [
-      { name: 'Estoque', data: cache.estoque },
+      { name: 'Estoque', data: estoqueExportRows },
       { name: 'Totais_SKU', data: totais }
     ]);
+    if (missingSkus.length) showFeedback(`Aviso: SKU(s) sem fardos por palete: ${missingSkus.join(', ')}.`, 'error');
   });
 
   el.exportConsultaBtn.addEventListener('click', () => {
+    const { rows: estoqueExportRows, missingSkus } = buildEstoqueExportRows();
     const totais = groupTotalBySku(cache.estoque, { excludeRetrabalho: true });
     exportWorkbook('consulta_estoque.xlsx', [
-      { name: 'Consulta_Areas', data: cache.estoque },
+      { name: 'Consulta_Areas', data: estoqueExportRows },
       { name: 'Totais_SKU', data: totais }
     ]);
+    if (missingSkus.length) showFeedback(`Aviso: SKU(s) sem fardos por palete: ${missingSkus.join(', ')}.`, 'error');
   });
 
   el.exportExpedicaoBtn.addEventListener('click', () => {
@@ -741,24 +875,17 @@ function setupPlanejamento() {
   });
 }
 
-function setupConfigToggle() {
-  el.toggleConfigBtn?.addEventListener('click', () => {
-    if (!el.configFields) return;
-    const isHidden = el.configFields.classList.toggle('hidden');
-    el.connectBtn?.classList.toggle('hidden', isHidden);
-    el.toggleConfigBtn.textContent = isHidden ? 'Mostrar configuração' : 'Ocultar configuração';
-  });
-}
-
 function init() {
   setupTabs();
   setupExports();
   setupPlanejamento();
-  setupConfigToggle();
-  el.connectBtn.addEventListener('click', createClient);
+  el.turnoForm?.addEventListener('submit', handleTurnoSubmit);
+  el.paleteIncompletoToggle?.addEventListener('change', (event) => {
+    el.paleteIncompletoFields?.classList.toggle('hidden', !event.target.checked);
+  });
   el.estoqueForm.addEventListener('submit', handleEstoqueSubmit);
   el.produtoForm.addEventListener('submit', handleProdutoSubmit);
-  el.expedicaoForm.addEventListener('submit', handleExpedicaoSubmit);
+  el.expedicaoForm?.addEventListener('submit', handleExpedicaoSubmit);
   el.importForm.addEventListener('submit', handleImportSubmit);
   el.selectImportBtn?.addEventListener('click', () => el.importFile?.click());
   el.importFile?.addEventListener('change', () => {

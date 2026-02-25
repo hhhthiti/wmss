@@ -17,29 +17,13 @@
     </header>
 
     <main>
-      <section class="card config-card">
-        <div class="config-header">
-          <h2>Configuração Supabase</h2>
-          <button id="toggleConfigBtn" type="button" class="secondary">Mostrar configuração</button>
-        </div>
-        <div id="configFields" class="grid two-col hidden">
-          <label>
-            Project URL
-            <input id="supabaseUrl" type="url" readonly />
-          </label>
-          <label>
-            Publishable Key
-            <input id="supabaseKey" type="text" readonly />
-          </label>
-        </div>
-        <button id="connectBtn" class="hidden">Conectar</button>
-        <p id="connectionStatus" class="status"></p>
-      </section>
+      
 
       <nav class="tabs">
         <button class="tab-btn active" data-tab="cadastro">Cadastro</button>
         <button class="tab-btn" data-tab="consulta">Consulta</button>
-        <button class="tab-btn" data-tab="expedicao">Expedição</button>
+        <button class="tab-btn" data-tab="expedicao">Conferência de turno</button>
+        <button class="tab-btn" data-tab="planejamento">Planejamento</button>
       </nav>
 
       <section id="cadastro" class="tab-content active">
@@ -56,6 +40,15 @@
               </select>
             </label>
             <label>Paletes <input name="paletes" type="number" min="1" required /></label>
+            <label>Fardos por palete (SKU novo) <input name="fardos_por_palete" type="number" min="1" placeholder="Ex.: 36" /></label>
+            <label class="inline-check">
+              <input id="paleteIncompletoToggle" type="checkbox" />
+              Possui palete(s) incompleto(s)
+            </label>
+            <div id="paleteIncompletoFields" class="grid two-col hidden">
+              <label>Qtd de paletes incompletos <input name="paletes_incompletos" type="number" min="1" value="1" /></label>
+              <label>Total de fardos nos incompletos <input name="fardos_incompletos" type="number" min="1" /></label>
+            </div>
             <div class="actions">
               <button type="submit">Salvar / Atualizar</button>
             </div>
@@ -104,27 +97,6 @@
           </label>
           <div class="layout-actions">
             <button id="exportEspelhoBtn" class="secondary">Baixar planilha espelho agora</button>
-          </div>
-        </div>
-
-        <div class="card">
-          <h2>Planejamento de recebimento (NF)</h2>
-          <p class="helper-text">Informe previsão de chegada por SKU para estimar ocupação e blocados que precisam ser desfeitos.</p>
-          <form id="planejamentoForm" class="grid">
-            <label>
-              Previsão de chegada (uma linha por SKU: <code>SKU,PALETES</code>)
-              <textarea id="previsaoEntrada" rows="5" placeholder="20104409,30&#10;30152626,18"></textarea>
-            </label>
-            <div class="actions">
-              <button type="submit">Calcular planejamento</button>
-            </div>
-          </form>
-          <div id="planejamentoResultado" class="status"></div>
-          <div class="table-wrapper">
-            <table id="planejamentoTable">
-              <thead><tr><th>Bloco</th><th>Capacidade</th><th>Ocupado</th><th>Livre</th><th>Após NF</th><th>Ação</th></tr></thead>
-              <tbody></tbody>
-            </table>
           </div>
         </div>
 
@@ -182,31 +154,49 @@
 
       <section id="expedicao" class="tab-content">
         <div class="card">
-          <h2>Expedir (retirar do estoque)</h2>
-          <form id="expedicaoForm" class="grid form-grid">
-            <label>Área <input name="area" required placeholder="Ex.: B02" /></label>
-            <label>SKU <input name="sku" type="number" required /></label>
-            <label>Tipo
-              <select name="tipo" required>
-                <option value="PL2">PL2</option>
-                <option value="PBR">PBR</option>
-                <option value="FARDO">FARDO</option>
-              </select>
+          <h2>Conferência por planilha (fim de turno)</h2>
+          <p class="helper-text">Importe a planilha da contagem final para o sistema calcular automaticamente o que saiu por SKU.</p>
+          <form id="turnoForm" class="grid form-grid">
+            <label>
+              Planilha final (.xlsx/.xls/.csv)
+              <input id="turnoFile" type="file" accept=".xlsx,.xls,.csv" required />
             </label>
-            <label>Quantidade para expedir <input name="paletes" type="number" min="1" required /></label>
-            <div class="actions"><button type="submit" class="danger">Expedir / Dar baixa</button></div>
+            <div class="actions"><button type="submit">Calcular saída do turno</button></div>
           </form>
+          <p id="turnoStatus" class="status"></p>
         </div>
 
         <div class="card">
-          <h2>Histórico de expedição</h2>
+          <h2>Saída calculada por SKU</h2>
           <div class="table-wrapper">
-            <table id="movimentacoesTable">
-              <thead><tr><th>Data</th><th>SKU</th><th>Tipo</th><th>Qtd expedida</th></tr></thead>
+            <table id="turnoSkuTable">
+              <thead><tr><th>SKU</th><th>Tipo</th><th>Paletes saíram</th><th>Fardos estimados</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
-          <button id="exportExpedicaoBtn" class="secondary">Exportar planilha (expedidas + totais SKU expedido)</button>
+        </div>
+      </section>
+
+      <section id="planejamento" class="tab-content">
+        <div class="card">
+          <h2>Planejamento de recebimento (NF)</h2>
+          <p class="helper-text">Informe previsão de chegada por SKU para estimar ocupação e blocados que precisam ser desfeitos.</p>
+          <form id="planejamentoForm" class="grid">
+            <label>
+              Previsão de chegada (uma linha por SKU: <code>SKU,PALETES</code>)
+              <textarea id="previsaoEntrada" rows="5" placeholder="20104409,30&#10;30152626,18"></textarea>
+            </label>
+            <div class="actions">
+              <button type="submit">Calcular planejamento</button>
+            </div>
+          </form>
+          <div id="planejamentoResultado" class="status"></div>
+          <div class="table-wrapper">
+            <table id="planejamentoTable">
+              <thead><tr><th>Bloco</th><th>Capacidade</th><th>Ocupado</th><th>Livre</th><th>Após NF</th><th>Ação</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </section>
 
