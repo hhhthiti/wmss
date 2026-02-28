@@ -13,6 +13,7 @@ const el = {
   expedicaoForm: document.getElementById('expedicaoForm'),
   importForm: document.getElementById('importForm'),
   importFile: document.getElementById('importFile'),
+  importSyncMode: document.getElementById('importSyncMode'),
   importFileName: document.getElementById('importFileName'),
   selectImportBtn: document.getElementById('selectImportBtn'),
   estoqueTableBody: document.querySelector('#estoqueTable tbody'),
@@ -21,6 +22,7 @@ const el = {
   sobrasB01Body: document.querySelector('#sobrasB01Table tbody'),
   planejamentoForm: document.getElementById('planejamentoForm'),
   previsaoEntrada: document.getElementById('previsaoEntrada'),
+  planejamentoFile: document.getElementById('planejamentoFile'),
   planejamentoResultado: document.getElementById('planejamentoResultado'),
   planejamentoBody: document.querySelector('#planejamentoTable tbody'),
   ocupacaoForm: document.getElementById('ocupacaoForm'),
@@ -35,6 +37,8 @@ const el = {
   turnoFile: document.getElementById('turnoFile'),
   turnoStatus: document.getElementById('turnoStatus'),
   turnoSkuBody: document.querySelector('#turnoSkuTable tbody'),
+  exportTurnoExcelBtn: document.getElementById('exportTurnoExcelBtn'),
+  exportTurnoPdfBtn: document.getElementById('exportTurnoPdfBtn'),
   turnoHistoryBody: document.querySelector('#turnoHistoryTable tbody'),
   movimentacoesBody: document.querySelector('#movimentacoesTable tbody'),
   exportCadastroBtn: document.getElementById('exportCadastroBtn'),
@@ -55,6 +59,7 @@ let supabaseClient;
 let cache = { estoque: [], movimentacoes: [], produtos: [] };
 let fracionadoMap = {};
 let turnoSnapshots = JSON.parse(localStorage.getItem('wmss_turno_snapshots') || '[]');
+let lastTurnoResultado = [];
 
 const manualOcupados = new Set([
   'A14', 'A15', 'A16', 'A17', 'A18', 'A19',
@@ -138,6 +143,45 @@ function parseIncomingForecast(text) {
       return { sku: Number(skuRaw), paletes: Number(paletesRaw) };
     })
     .filter((item) => Number.isFinite(item.sku) && Number.isFinite(item.paletes) && item.paletes > 0);
+}
+
+function parseIncomingForecastRows(rows) {
+  return rows
+    .map((row) => {
+      const normalized = Object.fromEntries(
+        Object.entries(row).map(([k, v]) => [String(k).trim().toLowerCase(), v])
+      );
+      return {
+        sku: Number(normalized.sku),
+        paletes: Number(normalized.paletes)
+      };
+    })
+    .filter((item) => Number.isFinite(item.sku) && Number.isFinite(item.paletes) && item.paletes > 0);
+}
+
+function exportTurnoResultadoExcel() {
+  if (!lastTurnoResultado.length) return showFeedback('Execute a conferência do turno antes de exportar.', 'error');
+  exportWorkbook('resultado_turno.xlsx', [{ name: 'Saida_Turno', data: lastTurnoResultado }]);
+}
+
+function exportTurnoResultadoPDF() {
+  if (!lastTurnoResultado.length) return showFeedback('Execute a conferência do turno antes de exportar.', 'error');
+  if (!window.jspdf) return showFeedback('Biblioteca de PDF não carregada.', 'error');
+
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF('portrait');
+  let y = 15;
+  pdf.text('Resultado da Conferência de Turno', 10, y);
+  y += 8;
+  lastTurnoResultado.forEach((row) => {
+    pdf.text(`SKU ${row.sku} | ${row.tipo} | Paletes: ${row.paletes_sairam} | Fardos: ${row.fardos_estimados}`, 10, y);
+    y += 6;
+    if (y > 280) {
+      pdf.addPage();
+      y = 15;
+    }
+  });
+  pdf.save('resultado_turno.pdf');
 }
 
 function mapAreaToPlanejamentoBloco(area) {
@@ -662,6 +706,7 @@ async function handleTurnoSubmit(event) {
     const finalTurno = consolidarPorChave(rows);
     const saidaSkuTipo = {};
     const missing = new Set();
+    lastTurnoResultado = [];
 
     Object.keys(atual).forEach((key) => {
       const saiu = Math.max(0, Number(atual[key] || 0) - Number(finalTurno[key] || 0));
@@ -678,6 +723,12 @@ async function handleTurnoSubmit(event) {
         const [sku, tipo] = skuTipo.split('|');
         const fpp = getFardosPorPalete(Number(sku));
         if (!fpp) missing.add(sku);
+        lastTurnoResultado.push({
+          sku: Number(sku),
+          tipo,
+          paletes_sairam: paletes,
+          fardos_estimados: fpp ? paletes * fpp : 'N/D'
+        });
         const tr = document.createElement('tr');
         tr.innerHTML = `<td>${sku}</td><td>${tipo}</td><td>${paletes}</td><td>${fpp ? paletes * fpp : 'N/D'}</td>`;
         el.turnoSkuBody.appendChild(tr);
@@ -740,6 +791,7 @@ async function handleImportSubmit(event) {
 
     let insertedOrUpdated = 0;
     let deleted = 0;
+    const mentionedKeys = new Set();
 
     for (let i = 0; i < rows.length; i += 1) {
       const item = mapImportRow(rows[i]);
@@ -755,6 +807,7 @@ async function handleImportSubmit(event) {
         if (deleteError) throw new Error(`Linha ${i + 2}: ${deleteError.message}`);
         deleted += 1;
       } else {
+        mentionedKeys.add(estoqueKey(item.area, item.sku, item.tipo));
         const payload = {
           area: item.area,
           sku: item.sku,
@@ -764,6 +817,23 @@ async function handleImportSubmit(event) {
         const { error: upsertError } = await supabaseClient.from('estoque_area').upsert(payload);
         if (upsertError) throw new Error(`Linha ${i + 2}: ${upsertError.message}`);
         insertedOrUpdated += 1;
+      }
+    }
+
+    if (el.importSyncMode?.checked) {
+      const { data: atuais, error: fetchAtualError } = await supabaseClient
+        .from('estoque_area')
+        .select('area, sku, tipo');
+      if (fetchAtualError) throw fetchAtualError;
+
+      const paraRemover = (atuais || []).filter((row) => !mentionedKeys.has(estoqueKey(row.area, row.sku, row.tipo)));
+      for (const row of paraRemover) {
+        const { error: deleteSyncError } = await supabaseClient
+          .from('estoque_area')
+          .delete()
+          .match({ area: row.area, sku: row.sku, tipo: row.tipo });
+        if (deleteSyncError) throw deleteSyncError;
+        deleted += 1;
       }
     }
 
@@ -1070,9 +1140,17 @@ function setupTabs() {
 }
 
 function setupPlanejamento() {
-  el.planejamentoForm?.addEventListener('submit', (event) => {
+  el.planejamentoForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const itens = parseIncomingForecast(el.previsaoEntrada?.value);
+    let itens = parseIncomingForecast(el.previsaoEntrada?.value);
+    const file = el.planejamentoFile?.files?.[0];
+    if (file) {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+      itens = parseIncomingForecastRows(rows);
+    }
     const totalPrevisto = itens.reduce((acc, item) => acc + item.paletes, 0);
     renderPlanejamentoTable(getPlanejamentoOcupacaoAtual(), totalPrevisto);
   });
@@ -1094,6 +1172,8 @@ function init() {
   renderG1Detalhe();
   renderTurnoHistory();
   el.turnoForm?.addEventListener('submit', handleTurnoSubmit);
+  el.exportTurnoExcelBtn?.addEventListener('click', exportTurnoResultadoExcel);
+  el.exportTurnoPdfBtn?.addEventListener('click', exportTurnoResultadoPDF);
   el.paleteIncompletoToggle?.addEventListener('change', (event) => {
     el.paleteIncompletoFields?.classList.toggle('hidden', !event.target.checked);
   });

@@ -80,6 +80,10 @@
               <input id="importFile" type="file" accept=".xlsx,.xls,.csv" required />
               <span id="importFileName" class="file-name">Nenhum arquivo selecionado</span>
             </label>
+            <label class="inline-check">
+              <input id="importSyncMode" type="checkbox" />
+              Sincronização agressiva: apagar do sistema tudo que não estiver na planilha
+            </label>
             <div class="actions">
               <button id="selectImportBtn" type="button" class="secondary">Selecionar planilha</button>
               <button type="submit">Processar planilha</button>
@@ -166,6 +170,10 @@
             <div class="actions"><button type="submit">Calcular saída do turno</button></div>
           </form>
           <p id="turnoStatus" class="status"></p>
+          <div class="actions">
+            <button id="exportTurnoExcelBtn" type="button" class="secondary">Exportar resultado (Excel)</button>
+            <button id="exportTurnoPdfBtn" type="button" class="secondary">Exportar resultado (PDF)</button>
+          </div>
         </div>
 
         <div class="card">
@@ -197,6 +205,10 @@
             <label>
               Previsão de chegada (uma linha por SKU: <code>SKU,PALETES</code>)
               <textarea id="previsaoEntrada" rows="5" placeholder="20104409,30&#10;30152626,18"></textarea>
+            </label>
+            <label>
+              Ou subir planilha de previsão (.xlsx/.xls/.csv) com colunas <strong>sku</strong> e <strong>paletes</strong>
+              <input id="planejamentoFile" type="file" accept=".xlsx,.xls,.csv" />
             </label>
             <div class="actions">
               <button type="submit">Calcular planejamento</button>
