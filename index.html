@@ -25,6 +25,7 @@
         <button class="tab-btn" data-tab="expedicao">Conferência de turno</button>
         <button class="tab-btn" data-tab="planejamento">Planejamento</button>
         <button class="tab-btn" data-tab="ocupacao">Ocupação</button>
+        <button class="tab-btn" data-tab="contagem">Contagem</button>
       </nav>
 
       <section id="cadastro" class="tab-content active">
@@ -262,6 +263,64 @@
             </table>
           </div>
           <p id="g1TotaisStatus" class="status"></p>
+        </div>
+      </section>
+
+      <section id="contagem" class="tab-content">
+        <div class="card">
+          <h2>Contagem por rua/estrutura</h2>
+          <p class="helper-text">Selecione a área. A tabela mostra as posições para preencher SKU, 1ª camada, 2ª camada e ajustes de fileira incompleta/3ª camada.</p>
+          <form id="contagemForm" class="grid two-col">
+            <label>Área de contagem
+              <select id="contagemScope">
+                <option value="A">Rua A</option>
+                <option value="B">Rua B</option>
+                <option value="C">Rua C</option>
+                <option value="ESTRUTURA">Estrutura</option>
+                <option value="TISSUE">Tissue</option>
+                <option value="TTD">TTD</option>
+                <option value="LONIL">Lonil</option>
+              </select>
+            </label>
+            <label>Lado (Tissue/TTD/Lonil)
+              <select id="contagemSide">
+                <option value="ALL">Direito + Esquerdo</option>
+                <option value="D">Somente direito</option>
+                <option value="E">Somente esquerdo</option>
+              </select>
+            </label>
+            <div class="actions">
+              <button id="contagemLoadBtn" type="button" class="secondary">Carregar posições</button>
+              <button type="submit">Calcular</button>
+              <button id="contagemExportBtn" type="button" class="secondary">Exportar Excel</button>
+            </div>
+          </form>
+          <p id="contagemStatus" class="status"></p>
+          <div class="table-wrapper">
+            <table id="contagemTable">
+              <thead>
+                <tr>
+                  <th>Posição</th><th>SKU</th>
+                  <th>Prof. 1ª</th><th>Larg. 1ª</th>
+                  <th>Prof. 2ª</th><th>Larg. 2ª</th>
+                  <th>3ª camada?</th><th>Paletes 3ª</th>
+                  <th>Fileira incompleta?</th><th>Paletes ajuste</th>
+                  <th>Paletes</th><th>Fardos</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Resumo por SKU</h2>
+          <div class="table-wrapper">
+            <table id="contagemResumoTable">
+              <thead><tr><th>SKU</th><th>Paletes</th><th>Fardos</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </section>
 

@@ -319,3 +319,15 @@ th, td {
 .sem-foot {
   color: #3e4a58;
 }
+
+#contagemTable input[type="number"],
+#contagemTable input[type="text"],
+#contagemTable input:not([type]) {
+  width: 100%;
+  min-width: 72px;
+}
+
+#contagemTable input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}

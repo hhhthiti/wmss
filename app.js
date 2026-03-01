@@ -33,6 +33,14 @@ const el = {
   ocupacaoBody: document.querySelector('#ocupacaoTable tbody'),
   g1DetalheBody: document.querySelector('#g1DetalheTable tbody'),
   g1TotaisStatus: document.getElementById('g1TotaisStatus'),
+  contagemForm: document.getElementById('contagemForm'),
+  contagemScope: document.getElementById('contagemScope'),
+  contagemSide: document.getElementById('contagemSide'),
+  contagemLoadBtn: document.getElementById('contagemLoadBtn'),
+  contagemExportBtn: document.getElementById('contagemExportBtn'),
+  contagemStatus: document.getElementById('contagemStatus'),
+  contagemBody: document.querySelector('#contagemTable tbody'),
+  contagemResumoBody: document.querySelector('#contagemResumoTable tbody'),
   turnoForm: document.getElementById('turnoForm'),
   turnoFile: document.getElementById('turnoFile'),
   turnoStatus: document.getElementById('turnoStatus'),
@@ -60,6 +68,7 @@ let cache = { estoque: [], movimentacoes: [], produtos: [] };
 let fracionadoMap = {};
 let turnoSnapshots = JSON.parse(localStorage.getItem('wmss_turno_snapshots') || '[]');
 let lastTurnoResultado = [];
+let contagemMap = JSON.parse(localStorage.getItem('wmss_contagem_map') || '{}');
 
 const manualOcupados = new Set([
   'A14', 'A15', 'A16', 'A17', 'A18', 'A19',
@@ -508,6 +517,7 @@ function renderG1Detalhe() {
 }
 
 function renderMovimentacoes() {
+  if (!el.movimentacoesBody) return;
   el.movimentacoesBody.innerHTML = '';
   cache.movimentacoes.forEach((row) => {
     const tr = document.createElement('tr');
@@ -519,6 +529,205 @@ function renderMovimentacoes() {
     `;
     el.movimentacoesBody.appendChild(tr);
   });
+}
+
+const estruturaLabels = [
+  'R1.01-07', 'R2.01-09', 'R3.01-09', 'R3.10-16', 'R4.01-09', 'R4.10-16',
+  'R5.01-09', 'R5.10-16', 'R6.01-10', 'R6.11-16', 'CHAO ESTRUTURA'
+];
+
+function expandRangeLabel(label) {
+  const normalized = normalizeText(label);
+  if (normalized === 'CHAO ESTRUTURA') return ['CHAO ESTRUTURA'];
+  const match = normalized.match(/^(R\d+)\.(\d+)-(\d+)$/);
+  if (!match) return [normalized];
+  const prefix = match[1];
+  const start = Number(match[2]);
+  const end = Number(match[3]);
+  const values = [];
+  for (let i = start; i <= end; i += 1) values.push(`${prefix}.${String(i).padStart(2, '0')}`);
+  return values;
+}
+
+function getContagemPositions(scope, side = 'ALL') {
+  const s = normalizeText(scope);
+  if (s === 'A') return Array.from({ length: 26 }, (_, i) => `A${String(i + 1).padStart(2, '0')}`);
+  if (s === 'C') return Array.from({ length: 26 }, (_, i) => `C${String(i + 1).padStart(2, '0')}`);
+  if (s === 'B') {
+    const b = [];
+    for (let i = 1; i <= 22; i += 1) {
+      b.push(`B${String(i).padStart(2, '0')}D`);
+      b.push(`B${String(i).padStart(2, '0')}E`);
+    }
+    return b;
+  }
+  if (s === 'ESTRUTURA') return [...new Set(estruturaLabels.flatMap(expandRangeLabel))];
+  if (['TISSUE', 'TTD', 'LONIL'].includes(s)) {
+    const fromDb = cache.estoque
+      .map((row) => normalizeAreaCode(row.area))
+      .filter((area) => area.startsWith(s));
+    const maxPos = fromDb.reduce((max, area) => {
+      const m = area.match(/^(?:TISSUE|TTD|LONIL)(\d+)/);
+      return m ? Math.max(max, Number(m[1])) : max;
+    }, 0);
+    const qty = maxPos || 20;
+    const out = [];
+    for (let i = 1; i <= qty; i += 1) {
+      const base = `${s}${String(i).padStart(2, '0')}`;
+      if (side === 'D') out.push(`${base}D`);
+      else if (side === 'E') out.push(`${base}E`);
+      else {
+        out.push(`${base}D`);
+        out.push(`${base}E`);
+      }
+    }
+    return out;
+  }
+  return [];
+}
+
+function getContagemState(posicao) {
+  const item = contagemMap[posicao] || {};
+  return {
+    sku: item.sku || '',
+    profundidade1: Number(item.profundidade1 || 0),
+    largura1: Number(item.largura1 || 0),
+    profundidade2: Number(item.profundidade2 || 0),
+    largura2: Number(item.largura2 || 0),
+    terceiraCamada: Boolean(item.terceiraCamada),
+    paletesTerceira: Number(item.paletesTerceira || 0),
+    fileiraIncompleta: Boolean(item.fileiraIncompleta),
+    paletesAjuste: Number(item.paletesAjuste || 0)
+  };
+}
+
+function saveContagemState(posicao, next) {
+  contagemMap[posicao] = next;
+  localStorage.setItem('wmss_contagem_map', JSON.stringify(contagemMap));
+}
+
+function computeContagem(posicao) {
+  const st = getContagemState(posicao);
+  const camada1 = Math.max(0, st.profundidade1 * st.largura1);
+  const camada2 = Math.max(0, st.profundidade2 * st.largura2);
+  const terceira = st.terceiraCamada ? Math.max(0, st.paletesTerceira) : 0;
+  const ajuste = st.fileiraIncompleta ? Math.max(0, st.paletesAjuste) : 0;
+  const paletes = camada1 + camada2 + terceira + ajuste;
+  const fpp = getFardosPorPalete(st.sku);
+  return { ...st, posicao, paletes, fardos: fpp ? paletes * fpp : null };
+}
+
+function renderContagemResumo(rows) {
+  if (!el.contagemResumoBody) return;
+  el.contagemResumoBody.innerHTML = '';
+  const grouped = rows.reduce((acc, row) => {
+    const sku = normalizeText(row.sku);
+    if (!sku || row.paletes <= 0) return acc;
+    if (!acc[sku]) acc[sku] = { sku, paletes: 0, fardos: 0, missing: false };
+    acc[sku].paletes += row.paletes;
+    if (Number.isFinite(row.fardos)) acc[sku].fardos += row.fardos;
+    else acc[sku].missing = true;
+    return acc;
+  }, {});
+  const rowsResumo = Object.values(grouped).sort((a, b) => Number(a.sku) - Number(b.sku));
+  rowsResumo.forEach((row) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${row.sku}</td><td>${row.paletes}</td><td>${row.missing ? 'SKU sem fardos/palete' : row.fardos}</td>`;
+    el.contagemResumoBody.appendChild(tr);
+  });
+  if (!rowsResumo.length) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="3">Sem posições preenchidas.</td>';
+    el.contagemResumoBody.appendChild(tr);
+  }
+}
+
+function renderContagemTable() {
+  if (!el.contagemBody) return;
+  const positions = getContagemPositions(el.contagemScope?.value, el.contagemSide?.value || 'ALL');
+  el.contagemBody.innerHTML = '';
+  positions.forEach((posicao) => {
+    const st = getContagemState(posicao);
+    const result = computeContagem(posicao);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${posicao}</td>
+      <td><input data-posicao="${posicao}" data-field="sku" value="${st.sku}" /></td>
+      <td><input data-posicao="${posicao}" data-field="profundidade1" type="number" min="0" value="${st.profundidade1 || ''}" /></td>
+      <td><input data-posicao="${posicao}" data-field="largura1" type="number" min="0" value="${st.largura1 || ''}" /></td>
+      <td><input data-posicao="${posicao}" data-field="profundidade2" type="number" min="0" value="${st.profundidade2 || ''}" /></td>
+      <td><input data-posicao="${posicao}" data-field="largura2" type="number" min="0" value="${st.largura2 || ''}" /></td>
+      <td><input data-posicao="${posicao}" data-field="terceiraCamada" type="checkbox" ${st.terceiraCamada ? 'checked' : ''} /></td>
+      <td><input data-posicao="${posicao}" data-field="paletesTerceira" type="number" min="0" value="${st.paletesTerceira || ''}" ${st.terceiraCamada ? '' : 'disabled'} /></td>
+      <td><input data-posicao="${posicao}" data-field="fileiraIncompleta" type="checkbox" ${st.fileiraIncompleta ? 'checked' : ''} /></td>
+      <td><input data-posicao="${posicao}" data-field="paletesAjuste" type="number" min="0" value="${st.paletesAjuste || ''}" ${st.fileiraIncompleta ? '' : 'disabled'} /></td>
+      <td>${result.paletes}</td>
+      <td>${Number.isFinite(result.fardos) ? result.fardos : '-'}</td>
+    `;
+    el.contagemBody.appendChild(tr);
+  });
+
+  el.contagemBody.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('change', (event) => {
+      const { posicao, field } = event.target.dataset;
+      const current = getContagemState(posicao);
+      current[field] = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+      if (field === 'terceiraCamada' && !event.target.checked) current.paletesTerceira = 0;
+      if (field === 'fileiraIncompleta' && !event.target.checked) current.paletesAjuste = 0;
+      saveContagemState(posicao, current);
+      renderContagemTable();
+    });
+  });
+
+  renderContagemResumo(positions.map((p) => computeContagem(p)));
+}
+
+function exportContagemExcel() {
+  const rows = getContagemPositions(el.contagemScope?.value, el.contagemSide?.value || 'ALL')
+    .map((p) => computeContagem(p))
+    .filter((row) => normalizeText(row.sku) && row.paletes > 0)
+    .map((row) => ({
+      posicao: row.posicao,
+      sku: row.sku,
+      profundidade_1: row.profundidade1,
+      largura_1: row.largura1,
+      profundidade_2: row.profundidade2,
+      largura_2: row.largura2,
+      terceira_camada: row.terceiraCamada ? 'SIM' : 'NAO',
+      paletes_terceira: row.terceiraCamada ? row.paletesTerceira : 0,
+      fileira_incompleta: row.fileiraIncompleta ? 'SIM' : 'NAO',
+      paletes_ajuste: row.fileiraIncompleta ? row.paletesAjuste : 0,
+      paletes_totais: row.paletes,
+      fardos_totais: Number.isFinite(row.fardos) ? row.fardos : ''
+    }));
+  if (!rows.length) return showFeedback('Nenhuma posição preenchida para exportar.', 'error');
+  const resumo = Object.values(rows.reduce((acc, row) => {
+    const sku = String(row.sku);
+    if (!acc[sku]) acc[sku] = { sku, paletes: 0, fardos: 0 };
+    acc[sku].paletes += Number(row.paletes_totais || 0);
+    acc[sku].fardos += Number(row.fardos_totais || 0);
+    return acc;
+  }, {}));
+  exportWorkbook('contagem.xlsx', [
+    { name: 'Contagem', data: rows },
+    { name: 'Resumo_SKU', data: resumo }
+  ]);
+  showFeedback('Contagem exportada com sucesso.');
+}
+
+function setupContagem() {
+  el.contagemScope?.addEventListener('change', renderContagemTable);
+  el.contagemSide?.addEventListener('change', renderContagemTable);
+  el.contagemLoadBtn?.addEventListener('click', () => {
+    renderContagemTable();
+    setStatus(el.contagemStatus, 'Posições carregadas para preenchimento.', 'success');
+  });
+  el.contagemForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    renderContagemTable();
+    setStatus(el.contagemStatus, 'Cálculo atualizado.', 'success');
+  });
+  el.contagemExportBtn?.addEventListener('click', exportContagemExcel);
 }
 
 async function handleEstoqueSubmit(event) {
@@ -1169,6 +1378,7 @@ function init() {
   setupExports();
   setupPlanejamento();
   setupOcupacao();
+  setupContagem();
   renderG1Detalhe();
   renderTurnoHistory();
   el.turnoForm?.addEventListener('submit', handleTurnoSubmit);
