@@ -14,6 +14,7 @@
     <header>
       <h1>Controle de Estoque por Área</h1>
       <p>Cadastro, consulta e expedição de produtos</p>
+      <button id="themeToggleBtn" class="secondary" type="button" aria-label="Alternar modo escuro">🌙 Modo escuro</button>
     </header>
 
     <main>
@@ -282,7 +283,7 @@
                 <option value="LONIL">Lonil</option>
               </select>
             </label>
-            <label>Lado (Tissue/TTD/Lonil)
+            <label id="contagemSideLabel">Lado (Tissue/TTD/Lonil)
               <select id="contagemSide">
                 <option value="ALL">Direito + Esquerdo</option>
                 <option value="D">Somente direito</option>
@@ -305,6 +306,7 @@
                   <th>Prof. 2ª</th><th>Larg. 2ª</th>
                   <th>3ª camada?</th><th>Paletes 3ª</th>
                   <th>Fileira incompleta?</th><th>Paletes ajuste</th>
+                  <th>Fardos faltando (palete não inteiro)</th>
                   <th>Paletes</th><th>Fardos</th>
                 </tr>
               </thead>

@@ -1,19 +1,48 @@
 :root {
   font-family: Inter, Arial, sans-serif;
-  color: #182028;
-  background: #f5f7fa;
+}
+
+:root {
+  --bg: #f5f7fa;
+  --text: #182028;
+  --card: #ffffff;
+  --header: #1f4d8f;
+  --muted: #4a5563;
+  --border: #ccd4dd;
+  --table-border: #e1e6eb;
+  --btn-secondary: #51606f;
+  --tab: #8c96a3;
+}
+
+body.dark {
+  --bg: #10151c;
+  --text: #e6edf3;
+  --card: #18202a;
+  --header: #0f2747;
+  --muted: #b8c2cf;
+  --border: #334152;
+  --table-border: #2a3442;
+  --btn-secondary: #3f4c5b;
+  --tab: #4f5c6c;
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
+  background: var(--bg);
+  color: var(--text);
 }
 
 header {
-  background: #1f4d8f;
+  background: var(--header);
   color: #fff;
   padding: 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 main {
@@ -23,7 +52,7 @@ main {
 }
 
 .card {
-  background: #fff;
+  background: var(--card);
   border-radius: 10px;
   padding: 1rem;
   margin-bottom: 1rem;
@@ -54,14 +83,14 @@ label {
 input, select, button {
   padding: 0.55rem 0.7rem;
   border-radius: 8px;
-  border: 1px solid #ccd4dd;
+  border: 1px solid var(--border);
   font-size: 0.95rem;
 }
 
 textarea {
   padding: 0.55rem 0.7rem;
   border-radius: 8px;
-  border: 1px solid #ccd4dd;
+  border: 1px solid var(--border);
   font-size: 0.95rem;
   font-family: inherit;
 }
@@ -80,7 +109,7 @@ button {
   cursor: pointer;
 }
 
-button.secondary { background: #51606f; }
+button.secondary { background: var(--btn-secondary); }
 button.danger { background: #b93636; }
 button.edit-btn { background: #2a7f46; margin-right: 0.35rem; }
 button.delete-btn { background: #b93636; }
@@ -98,7 +127,7 @@ button.delete-btn { background: #b93636; }
   margin-bottom: 1rem;
 }
 
-.tab-btn { background: #8c96a3; }
+.tab-btn { background: var(--tab); }
 .tab-btn.active { background: #1f4d8f; }
 
 .tab-content { display: none; }
@@ -114,7 +143,7 @@ table {
 }
 
 th, td {
-  border-bottom: 1px solid #e1e6eb;
+  border-bottom: 1px solid var(--table-border);
   padding: 0.55rem;
   text-align: left;
 }
@@ -130,7 +159,7 @@ th, td {
 
 .helper-text {
   margin-top: 0;
-  color: #4a5563;
+  color: var(--muted);
   font-size: 0.9rem;
   line-height: 1.4;
 }
@@ -157,7 +186,7 @@ th, td {
 .layout-container {
   position: fixed;
   inset: 0;
-  background: #f4f6f8;
+  background: var(--bg);
   overflow: auto;
   padding: 1rem;
   z-index: 1000;
@@ -168,7 +197,7 @@ th, td {
   justify-content: space-between;
   align-items: center;
   gap: 0.8rem;
-  background: #fff;
+  background: var(--card);
   border-radius: 8px;
   padding: 0.8rem;
   margin-bottom: 1rem;
@@ -189,7 +218,7 @@ th, td {
   min-width: 1900px;
   display: grid;
   gap: 0.45rem;
-  background: #fff;
+  background: var(--card);
   padding: 0.5rem;
   border-radius: 8px;
 }
@@ -257,7 +286,7 @@ th, td {
 }
 
 .estrutura-box {
-  border: 1px solid #ccd4dd;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.55rem;
   display: grid;
@@ -330,4 +359,28 @@ th, td {
 #contagemTable input[type="checkbox"] {
   width: 18px;
   height: 18px;
+}
+
+
+#contagemSideLabel.hidden { display: none; }
+body.dark .bp-cell { background: #1f2a36; border-color: #5b6776; }
+body.dark .bp-empty { background: transparent; }
+
+
+body.dark .card,
+body.dark .layout-header,
+body.dark .semantico-section,
+body.dark .estrutura-box,
+body.dark .sem-tenda,
+body.dark .sem-rua-top,
+body.dark .sem-bloco,
+body.dark .sem-servicos {
+  background: var(--card);
+  color: var(--text);
+}
+
+body.dark table { color: var(--text); }
+body.dark input, body.dark select, body.dark textarea {
+  background: #0f1721;
+  color: var(--text);
 }

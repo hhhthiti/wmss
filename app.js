@@ -35,6 +35,7 @@ const el = {
   g1TotaisStatus: document.getElementById('g1TotaisStatus'),
   contagemForm: document.getElementById('contagemForm'),
   contagemScope: document.getElementById('contagemScope'),
+  contagemSideLabel: document.getElementById('contagemSideLabel'),
   contagemSide: document.getElementById('contagemSide'),
   contagemLoadBtn: document.getElementById('contagemLoadBtn'),
   contagemExportBtn: document.getElementById('contagemExportBtn'),
@@ -60,7 +61,8 @@ const el = {
   estruturasGrid: document.getElementById('estruturasGrid'),
   semanticLayout: document.getElementById('semanticLayout'),
   exportLayoutPdfBtn: document.getElementById('exportLayoutPdfBtn'),
-  fecharLayoutBtn: document.getElementById('fecharLayoutBtn')
+  fecharLayoutBtn: document.getElementById('fecharLayoutBtn'),
+  themeToggleBtn: document.getElementById('themeToggleBtn')
 };
 
 let supabaseClient;
@@ -104,6 +106,10 @@ const capacidadePlanejamento = {
 const autoExportEnabled = localStorage.getItem('wmss_auto_export') === '1';
 if (el.autoExportToggle) el.autoExportToggle.checked = autoExportEnabled;
 fracionadoMap = JSON.parse(localStorage.getItem('wmss_fracionado_map') || '{}');
+
+const darkModeEnabled = localStorage.getItem('wmss_theme') === 'dark';
+document.body.classList.toggle('dark', darkModeEnabled);
+if (el.themeToggleBtn) el.themeToggleBtn.textContent = darkModeEnabled ? '☀️ Modo claro' : '🌙 Modo escuro';
 
 function setStatus(target, message, type = '') {
   if (!target) return;
@@ -245,9 +251,15 @@ function renderPlanejamentoTable(ocupado, previsaoPaletes = 0) {
 }
 
 function createClient() {
-  supabaseClient = window.supabase.createClient(defaultConfig.url, defaultConfig.key);
-  setStatus(el.connectionStatus, 'Conectado ao Supabase.', 'success');
-  loadAll();
+  try {
+    if (!window.supabase?.createClient) throw new Error('Biblioteca do Supabase indisponível no momento.');
+    supabaseClient = window.supabase.createClient(defaultConfig.url, defaultConfig.key);
+    setStatus(el.connectionStatus, 'Conectado ao Supabase.', 'success');
+    loadAll();
+  } catch (error) {
+    setStatus(el.connectionStatus, 'Falha de conexão com Supabase.', 'error');
+    showFeedback(`Erro ao conectar no Supabase: ${error.message}`, 'error');
+  }
 }
 
 async function loadEstoque() {
@@ -549,6 +561,19 @@ function expandRangeLabel(label) {
   return values;
 }
 
+function shouldShowContagemSide() {
+  const scope = normalizeText(el.contagemScope?.value);
+  return ['TISSUE', 'TTD', 'LONIL'].includes(scope);
+}
+
+function updateContagemSideVisibility() {
+  if (!el.contagemSide) return;
+  const visible = shouldShowContagemSide();
+  const sideLabel = document.getElementById('contagemSideLabel');
+  sideLabel?.classList.toggle('hidden', !visible);
+  if (!visible) el.contagemSide.value = 'ALL';
+}
+
 function getContagemPositions(scope, side = 'ALL') {
   const s = normalizeText(scope);
   if (s === 'A') return Array.from({ length: 26 }, (_, i) => `A${String(i + 1).padStart(2, '0')}`);
@@ -597,7 +622,8 @@ function getContagemState(posicao) {
     terceiraCamada: Boolean(item.terceiraCamada),
     paletesTerceira: Number(item.paletesTerceira || 0),
     fileiraIncompleta: Boolean(item.fileiraIncompleta),
-    paletesAjuste: Number(item.paletesAjuste || 0)
+    paletesAjuste: Number(item.paletesAjuste || 0),
+    fardosFaltando: Number(item.fardosFaltando || 0)
   };
 }
 
@@ -606,15 +632,18 @@ function saveContagemState(posicao, next) {
   localStorage.setItem('wmss_contagem_map', JSON.stringify(contagemMap));
 }
 
-function computeContagem(posicao) {
+function computeContagem(posicao, scope = el.contagemScope?.value) {
   const st = getContagemState(posicao);
-  const camada1 = Math.max(0, st.profundidade1 * st.largura1);
-  const camada2 = Math.max(0, st.profundidade2 * st.largura2);
+  const isEstrutura = normalizeText(scope) === 'ESTRUTURA';
+  const base = isEstrutura ? (normalizeText(st.sku) ? 1 : 0) : Math.max(0, st.profundidade1 * st.largura1) + Math.max(0, st.profundidade2 * st.largura2);
   const terceira = st.terceiraCamada ? Math.max(0, st.paletesTerceira) : 0;
   const ajuste = st.fileiraIncompleta ? Math.max(0, st.paletesAjuste) : 0;
-  const paletes = camada1 + camada2 + terceira + ajuste;
+  const paletes = base + terceira + ajuste;
   const fpp = getFardosPorPalete(st.sku);
-  return { ...st, posicao, paletes, fardos: fpp ? paletes * fpp : null };
+  const faltando = Math.max(0, st.fardosFaltando || 0);
+  const fardosBrutos = fpp ? paletes * fpp : null;
+  const fardos = Number.isFinite(fardosBrutos) ? Math.max(0, fardosBrutos - faltando) : null;
+  return { ...st, posicao, paletes, fardos };
 }
 
 function renderContagemResumo(rows) {
@@ -644,23 +673,27 @@ function renderContagemResumo(rows) {
 
 function renderContagemTable() {
   if (!el.contagemBody) return;
-  const positions = getContagemPositions(el.contagemScope?.value, el.contagemSide?.value || 'ALL');
+  updateContagemSideVisibility();
+  const scope = el.contagemScope?.value;
+  const isEstrutura = normalizeText(scope) === 'ESTRUTURA';
+  const positions = getContagemPositions(scope, el.contagemSide?.value || 'ALL');
   el.contagemBody.innerHTML = '';
   positions.forEach((posicao) => {
     const st = getContagemState(posicao);
-    const result = computeContagem(posicao);
+    const result = computeContagem(posicao, scope);
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${posicao}</td>
       <td><input data-posicao="${posicao}" data-field="sku" value="${st.sku}" /></td>
-      <td><input data-posicao="${posicao}" data-field="profundidade1" type="number" min="0" value="${st.profundidade1 || ''}" /></td>
-      <td><input data-posicao="${posicao}" data-field="largura1" type="number" min="0" value="${st.largura1 || ''}" /></td>
-      <td><input data-posicao="${posicao}" data-field="profundidade2" type="number" min="0" value="${st.profundidade2 || ''}" /></td>
-      <td><input data-posicao="${posicao}" data-field="largura2" type="number" min="0" value="${st.largura2 || ''}" /></td>
+      <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-field="profundidade1" type="number" min="0" value="${st.profundidade1 || ''}" />`}</td>
+      <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-field="largura1" type="number" min="0" value="${st.largura1 || ''}" />`}</td>
+      <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-field="profundidade2" type="number" min="0" value="${st.profundidade2 || ''}" />`}</td>
+      <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-field="largura2" type="number" min="0" value="${st.largura2 || ''}" />`}</td>
       <td><input data-posicao="${posicao}" data-field="terceiraCamada" type="checkbox" ${st.terceiraCamada ? 'checked' : ''} /></td>
       <td><input data-posicao="${posicao}" data-field="paletesTerceira" type="number" min="0" value="${st.paletesTerceira || ''}" ${st.terceiraCamada ? '' : 'disabled'} /></td>
       <td><input data-posicao="${posicao}" data-field="fileiraIncompleta" type="checkbox" ${st.fileiraIncompleta ? 'checked' : ''} /></td>
       <td><input data-posicao="${posicao}" data-field="paletesAjuste" type="number" min="0" value="${st.paletesAjuste || ''}" ${st.fileiraIncompleta ? '' : 'disabled'} /></td>
+      <td><input data-posicao="${posicao}" data-field="fardosFaltando" type="number" min="0" value="${st.fardosFaltando || ''}" /></td>
       <td>${result.paletes}</td>
       <td>${Number.isFinite(result.fardos) ? result.fardos : '-'}</td>
     `;
@@ -679,12 +712,13 @@ function renderContagemTable() {
     });
   });
 
-  renderContagemResumo(positions.map((p) => computeContagem(p)));
+  renderContagemResumo(positions.map((p) => computeContagem(p, scope)));
 }
 
 function exportContagemExcel() {
-  const rows = getContagemPositions(el.contagemScope?.value, el.contagemSide?.value || 'ALL')
-    .map((p) => computeContagem(p))
+  const scope = el.contagemScope?.value;
+  const rows = getContagemPositions(scope, el.contagemSide?.value || 'ALL')
+    .map((p) => computeContagem(p, scope))
     .filter((row) => normalizeText(row.sku) && row.paletes > 0)
     .map((row) => ({
       posicao: row.posicao,
@@ -697,6 +731,7 @@ function exportContagemExcel() {
       paletes_terceira: row.terceiraCamada ? row.paletesTerceira : 0,
       fileira_incompleta: row.fileiraIncompleta ? 'SIM' : 'NAO',
       paletes_ajuste: row.fileiraIncompleta ? row.paletesAjuste : 0,
+      fardos_faltando: row.fardosFaltando || 0,
       paletes_totais: row.paletes,
       fardos_totais: Number.isFinite(row.fardos) ? row.fardos : ''
     }));
@@ -716,7 +751,11 @@ function exportContagemExcel() {
 }
 
 function setupContagem() {
-  el.contagemScope?.addEventListener('change', renderContagemTable);
+  updateContagemSideVisibility();
+  el.contagemScope?.addEventListener('change', () => {
+    updateContagemSideVisibility();
+    renderContagemTable();
+  });
   el.contagemSide?.addEventListener('change', renderContagemTable);
   el.contagemLoadBtn?.addEventListener('click', () => {
     renderContagemTable();
@@ -966,20 +1005,31 @@ function mapImportRow(rawRow) {
     Object.entries(rawRow).map(([k, v]) => [String(k).trim().toLowerCase(), v])
   );
 
+  const areaRaw = row.area ?? row['área'] ?? row.endereco ?? row.endereço;
+  const skuRaw = row.sku ?? row.codsku ?? row['cód_sku'];
+  const tipoRaw = row.tipo ?? row.produto_tipo;
+  const paletesRaw = row.paletes ?? row.pallets ?? row.quantidade;
+
   return {
-    area: normalizeAreaCode(row.area),
-    sku: Number(row.sku),
-    tipo: normalizeText(row.tipo),
-    paletes: Number(row.paletes),
+    area: normalizeAreaCode(areaRaw),
+    sku: Number(skuRaw),
+    tipo: normalizeText(tipoRaw),
+    paletes: Number(paletesRaw),
     acao: normalizeText(row.acao)
   };
 }
 
+function isEmptyImportItem(item) {
+  return !item.area && !Number.isFinite(item.sku) && !item.tipo && !Number.isFinite(item.paletes) && !item.acao;
+}
+
 function validateImportItem(item, line) {
+  if (isEmptyImportItem(item)) return 'SKIP';
   if (!item.area) return `Linha ${line}: área inválida`;
   if (!Number.isFinite(item.sku) || item.sku <= 0) return `Linha ${line}: sku inválido`;
   if (!item.tipo) return `Linha ${line}: tipo inválido`;
-  if (!Number.isFinite(item.paletes) || item.paletes < 0) return `Linha ${line}: paletes inválido`;
+  const deleteRow = shouldDeleteByAction(item.acao);
+  if (!deleteRow && (!Number.isFinite(item.paletes) || item.paletes < 0)) return `Linha ${line}: paletes inválido`;
   return null;
 }
 
@@ -1005,6 +1055,7 @@ async function handleImportSubmit(event) {
     for (let i = 0; i < rows.length; i += 1) {
       const item = mapImportRow(rows[i]);
       const error = validateImportItem(item, i + 2);
+      if (error === 'SKIP') continue;
       if (error) throw new Error(error);
 
       if (shouldDeleteByAction(item.acao) || item.paletes === 0) {
@@ -1048,7 +1099,7 @@ async function handleImportSubmit(event) {
 
     await loadEstoque();
     maybeAutoExport();
-    showFeedback(`Importação concluída. Incluídos/atualizados: ${insertedOrUpdated}. Apagados: ${deleted}.`);
+    showFeedback(`Importação concluída (${el.importSyncMode?.checked ? 'sincronização agressiva' : 'modo seguro'}). Incluídos/atualizados: ${insertedOrUpdated}. Apagados: ${deleted}.`);
     el.importForm.reset();
   } catch (error) {
     showFeedback(`Erro na importação: ${error.message}`, 'error');
@@ -1399,6 +1450,12 @@ function init() {
   el.visualizarLayoutBtn?.addEventListener('click', gerarLayoutVisual);
   el.exportLayoutPdfBtn?.addEventListener('click', exportarLayoutPDF);
   el.fecharLayoutBtn?.addEventListener('click', () => el.layoutContainer.classList.add('hidden'));
+  el.themeToggleBtn?.addEventListener('click', () => {
+    const isDark = !document.body.classList.contains('dark');
+    document.body.classList.toggle('dark', isDark);
+    localStorage.setItem('wmss_theme', isDark ? 'dark' : 'light');
+    el.themeToggleBtn.textContent = isDark ? '☀️ Modo claro' : '🌙 Modo escuro';
+  });
   el.autoExportToggle?.addEventListener('change', (event) => {
     const enabled = event.target.checked;
     localStorage.setItem('wmss_auto_export', enabled ? '1' : '0');
