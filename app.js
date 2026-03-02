@@ -705,6 +705,33 @@ function renderContagemResumo(rows) {
   }
 }
 
+function preloadContagemFromEstoque(scope, side = 'ALL') {
+  const positions = new Set(getContagemPositions(scope, side));
+  let preenchidas = 0;
+
+  positions.forEach((posicao) => {
+    const existentes = getContagemEntries(posicao);
+    const temDadosDigitados = existentes.some((entry) => normalizeText(entry.sku) || Number(entry.profundidade1) > 0 || Number(entry.largura1) > 0 || Number(entry.profundidade2) > 0 || Number(entry.largura2) > 0 || Number(entry.paletesTerceira) > 0 || Number(entry.paletesAjuste) > 0 || Number(entry.fardosFaltando) > 0);
+    if (temDadosDigitados) return;
+
+    const rows = cache.estoque
+      .filter((row) => normalizeAreaCode(row.area) === posicao)
+      .sort((a, b) => Number(a.sku) - Number(b.sku));
+
+    if (!rows.length) return;
+
+    const entries = rows.map((row) => ({
+      ...createEmptyContagemEntry(),
+      sku: String(row.sku || '')
+    }));
+
+    saveContagemEntries(posicao, entries);
+    preenchidas += 1;
+  });
+
+  return preenchidas;
+}
+
 function renderContagemTable() {
   if (!el.contagemBody) return;
   updateContagemSideVisibility();
@@ -823,8 +850,11 @@ function setupContagem() {
   });
   el.contagemSide?.addEventListener('change', renderContagemTable);
   el.contagemLoadBtn?.addEventListener('click', () => {
+    const scope = el.contagemScope?.value;
+    const side = el.contagemSide?.value || 'ALL';
+    const preenchidas = preloadContagemFromEstoque(scope, side) || 0;
     renderContagemTable();
-    setStatus(el.contagemStatus, 'Posições carregadas para preenchimento.', 'success');
+    setStatus(el.contagemStatus, `Posições carregadas para preenchimento. SKU(s) sugeridos em ${preenchidas} posição(ões).`, 'success');
   });
   el.contagemForm?.addEventListener('submit', (event) => {
     event.preventDefault();
