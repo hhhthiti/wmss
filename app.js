@@ -563,7 +563,7 @@ function expandRangeLabel(label) {
 
 function shouldShowContagemSide() {
   const scope = normalizeText(el.contagemScope?.value);
-  return ['TISSUE', 'TTD', 'LONIL'].includes(scope);
+  return ['B', 'TISSUE', 'TTD', 'LONIL'].includes(scope);
 }
 
 function updateContagemSideVisibility() {
@@ -581,8 +581,13 @@ function getContagemPositions(scope, side = 'ALL') {
   if (s === 'B') {
     const b = [];
     for (let i = 1; i <= 22; i += 1) {
-      b.push(`B${String(i).padStart(2, '0')}D`);
-      b.push(`B${String(i).padStart(2, '0')}E`);
+      const base = `B${String(i).padStart(2, '0')}`;
+      if (side === 'D') b.push(`${base}D`);
+      else if (side === 'E') b.push(`${base}E`);
+      else {
+        b.push(`${base}D`);
+        b.push(`${base}E`);
+      }
     }
     return b;
   }
@@ -619,6 +624,7 @@ function getContagemEntries(posicao) {
     sku: item.sku || '',
     profundidade1: Number(item.profundidade1 || 0),
     largura1: Number(item.largura1 || 0),
+    segundaCamada: typeof item.segundaCamada === 'boolean' ? item.segundaCamada : (Number(item.profundidade2 || 0) > 0 || Number(item.largura2 || 0) > 0),
     profundidade2: Number(item.profundidade2 || 0),
     largura2: Number(item.largura2 || 0),
     terceiraCamada: Boolean(item.terceiraCamada),
@@ -634,6 +640,7 @@ function createEmptyContagemEntry() {
     sku: '',
     profundidade1: 0,
     largura1: 0,
+    segundaCamada: false,
     profundidade2: 0,
     largura2: 0,
     terceiraCamada: false,
@@ -669,7 +676,9 @@ function removeContagemEntry(posicao, idx) {
 function computeContagem(posicao, entry, scope = el.contagemScope?.value) {
   const st = { ...createEmptyContagemEntry(), ...(entry || {}) };
   const isEstrutura = normalizeText(scope) === 'ESTRUTURA';
-  const base = isEstrutura ? (normalizeText(st.sku) ? 1 : 0) : Math.max(0, st.profundidade1 * st.largura1) + Math.max(0, st.profundidade2 * st.largura2);
+  const basePrimeira = Math.max(0, st.profundidade1 * st.largura1);
+  const baseSegunda = st.segundaCamada ? Math.max(0, st.profundidade2 * st.largura2) : 0;
+  const base = isEstrutura ? (normalizeText(st.sku) ? 1 : 0) : basePrimeira + baseSegunda;
   const terceira = st.terceiraCamada ? Math.max(0, st.paletesTerceira) : 0;
   const ajuste = st.fileiraIncompleta ? Math.max(0, st.paletesAjuste) : 0;
   const paletes = base + terceira + ajuste;
@@ -756,11 +765,12 @@ function renderContagemTable() {
       tr.innerHTML = `
         <td>${plusOrRemove}</td>
         <td>${posLabel}</td>
-        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="sku" value="${entry.sku || ''}" /></td>
+        <td><input class="contagem-sku-input" data-posicao="${posicao}" data-entry-idx="${idx}" data-field="sku" value="${entry.sku || ''}" /></td>
         <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="profundidade1" type="number" min="0" value="${entry.profundidade1 || ''}" />`}</td>
         <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="largura1" type="number" min="0" value="${entry.largura1 || ''}" />`}</td>
-        <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="profundidade2" type="number" min="0" value="${entry.profundidade2 || ''}" />`}</td>
-        <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="largura2" type="number" min="0" value="${entry.largura2 || ''}" />`}</td>
+        <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="segundaCamada" type="checkbox" ${entry.segundaCamada ? 'checked' : ''} />`}</td>
+        <td>${isEstrutura ? '<span>-</span>' : (entry.segundaCamada ? `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="profundidade2" type="number" min="0" value="${entry.profundidade2 || ''}" />` : '<span class="contagem-collapsed">marque 2ª camada</span>')}</td>
+        <td>${isEstrutura ? '<span>-</span>' : (entry.segundaCamada ? `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="largura2" type="number" min="0" value="${entry.largura2 || ''}" />` : '<span class="contagem-collapsed">marque 2ª camada</span>')}</td>
         <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="terceiraCamada" type="checkbox" ${entry.terceiraCamada ? 'checked' : ''} /></td>
         <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="paletesTerceira" type="number" min="0" value="${entry.paletesTerceira || ''}" ${entry.terceiraCamada ? '' : 'disabled'} /></td>
         <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="fileiraIncompleta" type="checkbox" ${entry.fileiraIncompleta ? 'checked' : ''} /></td>
@@ -795,6 +805,10 @@ function renderContagemTable() {
       const idx = Number(entryIdx || 0);
       const current = { ...entries[idx] };
       current[field] = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+      if (field === 'segundaCamada' && !event.target.checked) {
+        current.profundidade2 = 0;
+        current.largura2 = 0;
+      }
       if (field === 'terceiraCamada' && !event.target.checked) current.paletesTerceira = 0;
       if (field === 'fileiraIncompleta' && !event.target.checked) current.paletesAjuste = 0;
       entries[idx] = current;
@@ -817,6 +831,7 @@ function exportContagemExcel() {
       item_posicao: row.entry_idx,
       profundidade_1: row.profundidade1,
       largura_1: row.largura1,
+      segunda_camada: row.segundaCamada ? 'SIM' : 'NAO',
       profundidade_2: row.profundidade2,
       largura_2: row.largura2,
       terceira_camada: row.terceiraCamada ? 'SIM' : 'NAO',

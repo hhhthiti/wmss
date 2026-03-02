@@ -362,6 +362,17 @@ th, td {
 }
 
 
+
+#contagemTable .contagem-sku-input {
+  min-width: 180px;
+}
+
+#contagemTable .contagem-collapsed {
+  font-size: 0.78rem;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
 #contagemSideLabel.hidden { display: none; }
 body.dark .bp-cell { background: #1f2a36; border-color: #5b6776; }
 body.dark .bp-empty { background: transparent; }
