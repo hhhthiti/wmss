@@ -384,3 +384,19 @@ body.dark input, body.dark select, body.dark textarea {
   background: #0f1721;
   color: var(--text);
 }
+
+
+.contagem-plus-btn,
+.contagem-remove-btn {
+  min-width: 32px;
+  padding: 0.35rem 0.5rem;
+  line-height: 1;
+}
+
+.contagem-remove-btn {
+  background: #b93636;
+}
+
+.contagem-posicao-sub {
+  opacity: 0.75;
+}

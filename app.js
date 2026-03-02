@@ -611,9 +611,11 @@ function getContagemPositions(scope, side = 'ALL') {
   return [];
 }
 
-function getContagemState(posicao) {
-  const item = contagemMap[posicao] || {};
-  return {
+function getContagemEntries(posicao) {
+  const raw = contagemMap[posicao];
+  const asArray = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+  if (!asArray.length) return [createEmptyContagemEntry()];
+  return asArray.map((item) => ({
     sku: item.sku || '',
     profundidade1: Number(item.profundidade1 || 0),
     largura1: Number(item.largura1 || 0),
@@ -624,16 +626,48 @@ function getContagemState(posicao) {
     fileiraIncompleta: Boolean(item.fileiraIncompleta),
     paletesAjuste: Number(item.paletesAjuste || 0),
     fardosFaltando: Number(item.fardosFaltando || 0)
+  }));
+}
+
+function createEmptyContagemEntry() {
+  return {
+    sku: '',
+    profundidade1: 0,
+    largura1: 0,
+    profundidade2: 0,
+    largura2: 0,
+    terceiraCamada: false,
+    paletesTerceira: 0,
+    fileiraIncompleta: false,
+    paletesAjuste: 0,
+    fardosFaltando: 0
   };
 }
 
-function saveContagemState(posicao, next) {
-  contagemMap[posicao] = next;
+function saveContagemEntries(posicao, entries) {
+  const normalized = entries.map((entry) => ({
+    ...createEmptyContagemEntry(),
+    ...entry
+  }));
+  contagemMap[posicao] = normalized;
   localStorage.setItem('wmss_contagem_map', JSON.stringify(contagemMap));
 }
 
-function computeContagem(posicao, scope = el.contagemScope?.value) {
-  const st = getContagemState(posicao);
+function addContagemEntry(posicao) {
+  const entries = getContagemEntries(posicao);
+  entries.push(createEmptyContagemEntry());
+  saveContagemEntries(posicao, entries);
+}
+
+function removeContagemEntry(posicao, idx) {
+  const entries = getContagemEntries(posicao);
+  if (entries.length <= 1) return;
+  entries.splice(idx, 1);
+  saveContagemEntries(posicao, entries);
+}
+
+function computeContagem(posicao, entry, scope = el.contagemScope?.value) {
+  const st = { ...createEmptyContagemEntry(), ...(entry || {}) };
   const isEstrutura = normalizeText(scope) === 'ESTRUTURA';
   const base = isEstrutura ? (normalizeText(st.sku) ? 1 : 0) : Math.max(0, st.profundidade1 * st.largura1) + Math.max(0, st.profundidade2 * st.largura2);
   const terceira = st.terceiraCamada ? Math.max(0, st.paletesTerceira) : 0;
@@ -678,51 +712,82 @@ function renderContagemTable() {
   const isEstrutura = normalizeText(scope) === 'ESTRUTURA';
   const positions = getContagemPositions(scope, el.contagemSide?.value || 'ALL');
   el.contagemBody.innerHTML = '';
+  const computedRows = [];
+
   positions.forEach((posicao) => {
-    const st = getContagemState(posicao);
-    const result = computeContagem(posicao, scope);
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${posicao}</td>
-      <td><input data-posicao="${posicao}" data-field="sku" value="${st.sku}" /></td>
-      <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-field="profundidade1" type="number" min="0" value="${st.profundidade1 || ''}" />`}</td>
-      <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-field="largura1" type="number" min="0" value="${st.largura1 || ''}" />`}</td>
-      <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-field="profundidade2" type="number" min="0" value="${st.profundidade2 || ''}" />`}</td>
-      <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-field="largura2" type="number" min="0" value="${st.largura2 || ''}" />`}</td>
-      <td><input data-posicao="${posicao}" data-field="terceiraCamada" type="checkbox" ${st.terceiraCamada ? 'checked' : ''} /></td>
-      <td><input data-posicao="${posicao}" data-field="paletesTerceira" type="number" min="0" value="${st.paletesTerceira || ''}" ${st.terceiraCamada ? '' : 'disabled'} /></td>
-      <td><input data-posicao="${posicao}" data-field="fileiraIncompleta" type="checkbox" ${st.fileiraIncompleta ? 'checked' : ''} /></td>
-      <td><input data-posicao="${posicao}" data-field="paletesAjuste" type="number" min="0" value="${st.paletesAjuste || ''}" ${st.fileiraIncompleta ? '' : 'disabled'} /></td>
-      <td><input data-posicao="${posicao}" data-field="fardosFaltando" type="number" min="0" value="${st.fardosFaltando || ''}" /></td>
-      <td>${result.paletes}</td>
-      <td>${Number.isFinite(result.fardos) ? result.fardos : '-'}</td>
-    `;
-    el.contagemBody.appendChild(tr);
+    const entries = getContagemEntries(posicao);
+
+    entries.forEach((entry, idx) => {
+      const result = computeContagem(posicao, entry, scope);
+      computedRows.push(result);
+      const tr = document.createElement('tr');
+      const posLabel = idx === 0 ? posicao : `<span class="contagem-posicao-sub">↳ ${posicao}</span>`;
+      const plusOrRemove = idx === 0
+        ? `<button type="button" class="secondary contagem-plus-btn" data-action="add-entry" data-posicao="${posicao}">+</button>`
+        : `<button type="button" class="contagem-remove-btn" data-action="remove-entry" data-posicao="${posicao}" data-entry-idx="${idx}">−</button>`;
+
+      tr.innerHTML = `
+        <td>${plusOrRemove}</td>
+        <td>${posLabel}</td>
+        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="sku" value="${entry.sku || ''}" /></td>
+        <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="profundidade1" type="number" min="0" value="${entry.profundidade1 || ''}" />`}</td>
+        <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="largura1" type="number" min="0" value="${entry.largura1 || ''}" />`}</td>
+        <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="profundidade2" type="number" min="0" value="${entry.profundidade2 || ''}" />`}</td>
+        <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="largura2" type="number" min="0" value="${entry.largura2 || ''}" />`}</td>
+        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="terceiraCamada" type="checkbox" ${entry.terceiraCamada ? 'checked' : ''} /></td>
+        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="paletesTerceira" type="number" min="0" value="${entry.paletesTerceira || ''}" ${entry.terceiraCamada ? '' : 'disabled'} /></td>
+        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="fileiraIncompleta" type="checkbox" ${entry.fileiraIncompleta ? 'checked' : ''} /></td>
+        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="paletesAjuste" type="number" min="0" value="${entry.paletesAjuste || ''}" ${entry.fileiraIncompleta ? '' : 'disabled'} /></td>
+        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="fardosFaltando" type="number" min="0" value="${entry.fardosFaltando || ''}" /></td>
+        <td>${result.paletes}</td>
+        <td>${Number.isFinite(result.fardos) ? result.fardos : '-'}</td>
+      `;
+      el.contagemBody.appendChild(tr);
+    });
   });
 
-  el.contagemBody.querySelectorAll('input').forEach((input) => {
-    input.addEventListener('change', (event) => {
-      const { posicao, field } = event.target.dataset;
-      const current = getContagemState(posicao);
-      current[field] = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
-      if (field === 'terceiraCamada' && !event.target.checked) current.paletesTerceira = 0;
-      if (field === 'fileiraIncompleta' && !event.target.checked) current.paletesAjuste = 0;
-      saveContagemState(posicao, current);
+  el.contagemBody.querySelectorAll('button[data-action="add-entry"]').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      addContagemEntry(event.currentTarget.dataset.posicao);
       renderContagemTable();
     });
   });
 
-  renderContagemResumo(positions.map((p) => computeContagem(p, scope)));
+  el.contagemBody.querySelectorAll('button[data-action="remove-entry"]').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      const { posicao, entryIdx } = event.currentTarget.dataset;
+      removeContagemEntry(posicao, Number(entryIdx));
+      renderContagemTable();
+    });
+  });
+
+  el.contagemBody.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('change', (event) => {
+      const { posicao, entryIdx, field } = event.target.dataset;
+      const entries = getContagemEntries(posicao);
+      const idx = Number(entryIdx || 0);
+      const current = { ...entries[idx] };
+      current[field] = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+      if (field === 'terceiraCamada' && !event.target.checked) current.paletesTerceira = 0;
+      if (field === 'fileiraIncompleta' && !event.target.checked) current.paletesAjuste = 0;
+      entries[idx] = current;
+      saveContagemEntries(posicao, entries);
+      renderContagemTable();
+    });
+  });
+
+  renderContagemResumo(computedRows);
 }
 
 function exportContagemExcel() {
   const scope = el.contagemScope?.value;
   const rows = getContagemPositions(scope, el.contagemSide?.value || 'ALL')
-    .map((p) => computeContagem(p, scope))
+    .flatMap((p) => getContagemEntries(p).map((entry, idx) => ({ ...computeContagem(p, entry, scope), entry_idx: idx + 1 })))
     .filter((row) => normalizeText(row.sku) && row.paletes > 0)
     .map((row) => ({
       posicao: row.posicao,
       sku: row.sku,
+      item_posicao: row.entry_idx,
       profundidade_1: row.profundidade1,
       largura_1: row.largura1,
       profundidade_2: row.profundidade2,
