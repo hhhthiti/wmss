@@ -38,6 +38,7 @@ const el = {
   contagemSideLabel: document.getElementById('contagemSideLabel'),
   contagemSide: document.getElementById('contagemSide'),
   contagemLoadBtn: document.getElementById('contagemLoadBtn'),
+  contagemEstimateBtn: document.getElementById('contagemEstimateBtn'),
   contagemExportBtn: document.getElementById('contagemExportBtn'),
   contagemStatus: document.getElementById('contagemStatus'),
   contagemBody: document.querySelector('#contagemTable tbody'),
@@ -70,6 +71,7 @@ let cache = { estoque: [], movimentacoes: [], produtos: [] };
 let fracionadoMap = {};
 let turnoSnapshots = JSON.parse(localStorage.getItem('wmss_turno_snapshots') || '[]');
 let lastTurnoResultado = [];
+let turnoUltimaPlanilhaSku = JSON.parse(localStorage.getItem('wmss_turno_ultima_planilha_sku') || '{}');
 let contagemMap = JSON.parse(localStorage.getItem('wmss_contagem_map') || '{}');
 
 const manualOcupados = new Set([
@@ -631,7 +633,8 @@ function getContagemEntries(posicao) {
     paletesTerceira: Number(item.paletesTerceira || 0),
     fileiraIncompleta: Boolean(item.fileiraIncompleta),
     paletesAjuste: Number(item.paletesAjuste || 0),
-    fardosFaltando: Number(item.fardosFaltando || 0)
+    fardosFaltando: Number(item.fardosFaltando || 0),
+    totalManual: Number(item.totalManual || 0)
   }));
 }
 
@@ -647,7 +650,8 @@ function createEmptyContagemEntry() {
     paletesTerceira: 0,
     fileiraIncompleta: false,
     paletesAjuste: 0,
-    fardosFaltando: 0
+    fardosFaltando: 0,
+    totalManual: 0
   };
 }
 
@@ -681,13 +685,85 @@ function computeContagem(posicao, entry, scope = el.contagemScope?.value) {
   const base = isEstrutura ? (normalizeText(st.sku) ? 1 : 0) : basePrimeira + baseSegunda;
   const terceira = st.terceiraCamada ? Math.max(0, st.paletesTerceira) : 0;
   const ajuste = st.fileiraIncompleta ? Math.max(0, st.paletesAjuste) : 0;
-  const paletes = base + terceira + ajuste;
+  const paletesCalculados = base + terceira + ajuste;
+  const paletes = Number(st.totalManual) > 0 ? Number(st.totalManual) : paletesCalculados;
   const fpp = getFardosPorPalete(st.sku);
   const faltando = Math.max(0, st.fardosFaltando || 0);
   const fardosBrutos = fpp ? paletes * fpp : null;
   const fardos = Number.isFinite(fardosBrutos) ? Math.max(0, fardosBrutos - faltando) : null;
-  return { ...st, posicao, paletes, fardos };
+  return { ...st, posicao, paletes, paletesCalculados, fardos };
 }
+
+function dividirQuantidade(total, slots) {
+  const qtd = Math.max(0, Number(total) || 0);
+  if (!slots) return [];
+  const base = Math.floor(qtd / slots);
+  const resto = qtd % slots;
+  return Array.from({ length: slots }, (_, idx) => base + (idx < resto ? 1 : 0));
+}
+
+function estimateLayersFromTotal(totalPaletes) {
+  const total = Math.max(0, Number(totalPaletes) || 0);
+  const capacidadeCamada = 15;
+  const primeira = Math.min(total, capacidadeCamada);
+  const segunda = Math.min(Math.max(0, total - capacidadeCamada), capacidadeCamada);
+  const terceira = Math.max(0, total - (capacidadeCamada * 2));
+
+  const toDepthWidth = (qty) => {
+    if (qty <= 0) return { profundidade: 0, largura: 0 };
+    const profundidade = Math.min(5, qty);
+    const largura = Math.min(3, Math.ceil(qty / profundidade));
+    return { profundidade, largura };
+  };
+
+  const c1 = toDepthWidth(primeira);
+  const c2 = toDepthWidth(segunda);
+  return {
+    profundidade1: c1.profundidade,
+    largura1: c1.largura,
+    segundaCamada: segunda > 0,
+    profundidade2: c2.profundidade,
+    largura2: c2.largura,
+    terceiraCamada: terceira > 0,
+    paletesTerceira: terceira
+  };
+}
+
+function estimateContagemFromTurno(scope, side = 'ALL') {
+  const skuTotals = turnoUltimaPlanilhaSku || {};
+  const skusDisponiveis = Object.keys(skuTotals).filter((sku) => Number(skuTotals[sku]) > 0);
+  if (!skusDisponiveis.length) return 0;
+
+  const positions = getContagemPositions(scope, side);
+  const targetsBySku = {};
+  positions.forEach((posicao) => {
+    const entries = getContagemEntries(posicao);
+    entries.forEach((entry, idx) => {
+      const sku = normalizeText(entry.sku);
+      if (!sku || !Number(skuTotals[sku])) return;
+      if (!targetsBySku[sku]) targetsBySku[sku] = [];
+      targetsBySku[sku].push({ posicao, idx });
+    });
+  });
+
+  let estimadas = 0;
+  Object.entries(targetsBySku).forEach(([sku, targets]) => {
+    const distribuicao = dividirQuantidade(Number(skuTotals[sku] || 0), targets.length);
+    targets.forEach((target, i) => {
+      const entries = getContagemEntries(target.posicao);
+      const current = { ...entries[target.idx] };
+      const total = distribuicao[i] || 0;
+      current.totalManual = total;
+      if (normalizeText(scope) !== 'ESTRUTURA') Object.assign(current, estimateLayersFromTotal(total));
+      entries[target.idx] = current;
+      saveContagemEntries(target.posicao, entries);
+      estimadas += 1;
+    });
+  });
+
+  return estimadas;
+}
+
 
 function renderContagemResumo(rows) {
   if (!el.contagemResumoBody) return;
@@ -720,7 +796,7 @@ function preloadContagemFromEstoque(scope, side = 'ALL') {
 
   positions.forEach((posicao) => {
     const existentes = getContagemEntries(posicao);
-    const temDadosDigitados = existentes.some((entry) => normalizeText(entry.sku) || Number(entry.profundidade1) > 0 || Number(entry.largura1) > 0 || Number(entry.profundidade2) > 0 || Number(entry.largura2) > 0 || Number(entry.paletesTerceira) > 0 || Number(entry.paletesAjuste) > 0 || Number(entry.fardosFaltando) > 0);
+    const temDadosDigitados = existentes.some((entry) => normalizeText(entry.sku) || Number(entry.profundidade1) > 0 || Number(entry.largura1) > 0 || Number(entry.profundidade2) > 0 || Number(entry.largura2) > 0 || Number(entry.paletesTerceira) > 0 || Number(entry.paletesAjuste) > 0 || Number(entry.fardosFaltando) > 0 || Number(entry.totalManual) > 0);
     if (temDadosDigitados) return;
 
     const rows = cache.estoque
@@ -776,6 +852,7 @@ function renderContagemTable() {
         <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="fileiraIncompleta" type="checkbox" ${entry.fileiraIncompleta ? 'checked' : ''} /></td>
         <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="paletesAjuste" type="number" min="0" value="${entry.paletesAjuste || ''}" ${entry.fileiraIncompleta ? '' : 'disabled'} /></td>
         <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="fardosFaltando" type="number" min="0" value="${entry.fardosFaltando || ''}" /></td>
+        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="totalManual" type="number" min="0" value="${entry.totalManual || ''}" /></td>
         <td>${result.paletes}</td>
         <td>${Number.isFinite(result.fardos) ? result.fardos : '-'}</td>
       `;
@@ -839,6 +916,7 @@ function exportContagemExcel() {
       fileira_incompleta: row.fileiraIncompleta ? 'SIM' : 'NAO',
       paletes_ajuste: row.fileiraIncompleta ? row.paletesAjuste : 0,
       fardos_faltando: row.fardosFaltando || 0,
+      total_editavel: row.totalManual || 0,
       paletes_totais: row.paletes,
       fardos_totais: Number.isFinite(row.fardos) ? row.fardos : ''
     }));
@@ -868,8 +946,18 @@ function setupContagem() {
     const scope = el.contagemScope?.value;
     const side = el.contagemSide?.value || 'ALL';
     const preenchidas = preloadContagemFromEstoque(scope, side) || 0;
+    const estimadas = estimateContagemFromTurno(scope, side);
     renderContagemTable();
-    setStatus(el.contagemStatus, `Posições carregadas para preenchimento. SKU(s) sugeridos em ${preenchidas} posição(ões).`, 'success');
+    setStatus(el.contagemStatus, `Posições carregadas para preenchimento. SKU(s) sugeridos em ${preenchidas} posição(ões). Estimativa da conferência aplicada em ${estimadas} linha(s).`, 'success');
+  });
+  el.contagemEstimateBtn?.addEventListener('click', () => {
+    const scope = el.contagemScope?.value;
+    const side = el.contagemSide?.value || 'ALL';
+    const estimadas = estimateContagemFromTurno(scope, side);
+    renderContagemTable();
+    setStatus(el.contagemStatus, estimadas
+      ? `Estimativa da última conferência aplicada em ${estimadas} linha(s). Campos continuam editáveis, inclusive o total.`
+      : 'Não há dados da última conferência para estimar (suba a planilha na aba Conferência de turno).', estimadas ? 'success' : 'error');
   });
   el.contagemForm?.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -1058,6 +1146,15 @@ async function handleTurnoSubmit(event) {
     const workbook = XLSX.read(buffer, { type: 'array' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' }).map(mapImportRow);
+    turnoUltimaPlanilhaSku = rows.reduce((acc, row) => {
+      const sku = Number(row.sku);
+      const paletes = Number(row.paletes);
+      if (!Number.isFinite(sku) || !Number.isFinite(paletes) || paletes <= 0) return acc;
+      const key = String(sku);
+      acc[key] = (acc[key] || 0) + paletes;
+      return acc;
+    }, {});
+    localStorage.setItem('wmss_turno_ultima_planilha_sku', JSON.stringify(turnoUltimaPlanilhaSku));
 
     const snapshotAnterior = turnoSnapshots[0]?.rows ?? null;
     const atual = snapshotAnterior ? consolidarPorChave(snapshotAnterior) : consolidarPorChave(cache.estoque);
