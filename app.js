@@ -16,6 +16,9 @@ const el = {
   importSyncMode: document.getElementById('importSyncMode'),
   importFileName: document.getElementById('importFileName'),
   selectImportBtn: document.getElementById('selectImportBtn'),
+  adminPasteForm: document.getElementById('adminPasteForm'),
+  adminPasteInput: document.getElementById('adminPasteInput'),
+  adminPasteSyncMode: document.getElementById('adminPasteSyncMode'),
   estoqueTableBody: document.querySelector('#estoqueTable tbody'),
   consultaAreaBody: document.querySelector('#consultaAreaTable tbody'),
   totaisSkuBody: document.querySelector('#totaisSkuTable tbody'),
@@ -1240,6 +1243,104 @@ function validateImportItem(item, line) {
   return null;
 }
 
+function parsePastedTable(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return [];
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (!lines.length) return [];
+
+  const delim = lines[0].includes('	') ? '	' : (lines[0].includes(';') ? ';' : ',');
+  const parseLine = (line) => {
+    if (delim === ',') {
+      const out = [];
+      let cur = '';
+      let quoted = false;
+      for (let i = 0; i < line.length; i += 1) {
+        const ch = line[i];
+        if (ch === '"') {
+          if (quoted && line[i + 1] === '"') {
+            cur += '"';
+            i += 1;
+          } else quoted = !quoted;
+        } else if (ch === ',' && !quoted) {
+          out.push(cur.trim());
+          cur = '';
+        } else cur += ch;
+      }
+      out.push(cur.trim());
+      return out;
+    }
+    return line.split(delim).map((v) => String(v || '').trim());
+  };
+
+  const headers = parseLine(lines[0]).map((h) => normalizeText(h).toLowerCase());
+  return lines.slice(1).map((line) => {
+    const cols = parseLine(line);
+    const row = {};
+    headers.forEach((h, idx) => {
+      row[h] = cols[idx] ?? '';
+    });
+    return row;
+  });
+}
+
+async function processImportRows(rows, syncMode) {
+  if (!rows.length) throw new Error('Planilha vazia.');
+
+  let insertedOrUpdated = 0;
+  let deleted = 0;
+  const mentionedKeys = new Set();
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const item = mapImportRow(rows[i]);
+    const error = validateImportItem(item, i + 2);
+    if (error === 'SKIP') continue;
+    if (error) throw new Error(error);
+
+    if (shouldDeleteByAction(item.acao) || item.paletes === 0) {
+      const { error: deleteError } = await supabaseClient
+        .from('estoque_area')
+        .delete()
+        .match({ area: item.area, sku: item.sku, tipo: item.tipo });
+
+      if (deleteError) throw new Error(`Linha ${i + 2}: ${deleteError.message}`);
+      deleted += 1;
+    } else {
+      mentionedKeys.add(estoqueKey(item.area, item.sku, item.tipo));
+      const payload = {
+        area: item.area,
+        sku: item.sku,
+        tipo: item.tipo,
+        paletes: item.paletes
+      };
+      const { error: upsertError } = await supabaseClient.from('estoque_area').upsert(payload);
+      if (upsertError) throw new Error(`Linha ${i + 2}: ${upsertError.message}`);
+      insertedOrUpdated += 1;
+    }
+  }
+
+  if (syncMode) {
+    const { data: atuais, error: fetchAtualError } = await supabaseClient
+      .from('estoque_area')
+      .select('area, sku, tipo');
+    if (fetchAtualError) throw fetchAtualError;
+
+    const paraRemover = (atuais || []).filter((row) => !mentionedKeys.has(estoqueKey(row.area, row.sku, row.tipo)));
+    for (const row of paraRemover) {
+      const { error: deleteSyncError } = await supabaseClient
+        .from('estoque_area')
+        .delete()
+        .match({ area: row.area, sku: row.sku, tipo: row.tipo });
+      if (deleteSyncError) throw deleteSyncError;
+      deleted += 1;
+    }
+  }
+
+  await loadEstoque();
+  maybeAutoExport();
+  return { insertedOrUpdated, deleted };
+}
+
 async function handleImportSubmit(event) {
   event.preventDefault();
   if (!supabaseClient) return showFeedback('Conecte ao Supabase primeiro.', 'error');
@@ -1252,64 +1353,24 @@ async function handleImportSubmit(event) {
     const workbook = XLSX.read(buffer, { type: 'array' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-
-    if (!rows.length) throw new Error('Planilha vazia.');
-
-    let insertedOrUpdated = 0;
-    let deleted = 0;
-    const mentionedKeys = new Set();
-
-    for (let i = 0; i < rows.length; i += 1) {
-      const item = mapImportRow(rows[i]);
-      const error = validateImportItem(item, i + 2);
-      if (error === 'SKIP') continue;
-      if (error) throw new Error(error);
-
-      if (shouldDeleteByAction(item.acao) || item.paletes === 0) {
-        const { error: deleteError } = await supabaseClient
-          .from('estoque_area')
-          .delete()
-          .match({ area: item.area, sku: item.sku, tipo: item.tipo });
-
-        if (deleteError) throw new Error(`Linha ${i + 2}: ${deleteError.message}`);
-        deleted += 1;
-      } else {
-        mentionedKeys.add(estoqueKey(item.area, item.sku, item.tipo));
-        const payload = {
-          area: item.area,
-          sku: item.sku,
-          tipo: item.tipo,
-          paletes: item.paletes
-        };
-        const { error: upsertError } = await supabaseClient.from('estoque_area').upsert(payload);
-        if (upsertError) throw new Error(`Linha ${i + 2}: ${upsertError.message}`);
-        insertedOrUpdated += 1;
-      }
-    }
-
-    if (el.importSyncMode?.checked) {
-      const { data: atuais, error: fetchAtualError } = await supabaseClient
-        .from('estoque_area')
-        .select('area, sku, tipo');
-      if (fetchAtualError) throw fetchAtualError;
-
-      const paraRemover = (atuais || []).filter((row) => !mentionedKeys.has(estoqueKey(row.area, row.sku, row.tipo)));
-      for (const row of paraRemover) {
-        const { error: deleteSyncError } = await supabaseClient
-          .from('estoque_area')
-          .delete()
-          .match({ area: row.area, sku: row.sku, tipo: row.tipo });
-        if (deleteSyncError) throw deleteSyncError;
-        deleted += 1;
-      }
-    }
-
-    await loadEstoque();
-    maybeAutoExport();
+    const { insertedOrUpdated, deleted } = await processImportRows(rows, Boolean(el.importSyncMode?.checked));
     showFeedback(`Importação concluída (${el.importSyncMode?.checked ? 'sincronização agressiva' : 'modo seguro'}). Incluídos/atualizados: ${insertedOrUpdated}. Apagados: ${deleted}.`);
     el.importForm.reset();
+    if (el.importFileName) el.importFileName.textContent = 'Nenhum arquivo selecionado';
   } catch (error) {
     showFeedback(`Erro na importação: ${error.message}`, 'error');
+  }
+}
+
+async function handleAdminPasteSubmit(event) {
+  event.preventDefault();
+  if (!supabaseClient) return showFeedback('Conecte ao Supabase primeiro.', 'error');
+  try {
+    const rows = parsePastedTable(el.adminPasteInput?.value);
+    const { insertedOrUpdated, deleted } = await processImportRows(rows, Boolean(el.adminPasteSyncMode?.checked));
+    showFeedback(`Atualização ADM concluída (${el.adminPasteSyncMode?.checked ? 'sincronização agressiva' : 'modo seguro'}). Incluídos/atualizados: ${insertedOrUpdated}. Apagados: ${deleted}.`);
+  } catch (error) {
+    showFeedback(`Erro na atualização ADM: ${error.message}`, 'error');
   }
 }
 
@@ -1649,6 +1710,7 @@ function init() {
   el.produtoForm.addEventListener('submit', handleProdutoSubmit);
   el.expedicaoForm?.addEventListener('submit', handleExpedicaoSubmit);
   el.importForm.addEventListener('submit', handleImportSubmit);
+  el.adminPasteForm?.addEventListener('submit', handleAdminPasteSubmit);
   el.selectImportBtn?.addEventListener('click', () => el.importFile?.click());
   el.importFile?.addEventListener('change', () => {
     const name = el.importFile.files?.[0]?.name || 'Nenhum arquivo selecionado';

@@ -95,6 +95,25 @@
 
 
 
+
+        <div class="card">
+          <h2>ADM: atualizar por colar planilha</h2>
+          <p class="helper-text">Cole aqui o conteúdo copiado do Excel (com cabeçalho). Aceita colunas <strong>area</strong>, <strong>sku</strong>, <strong>tipo</strong>, <strong>paletes</strong> e opcional <strong>acao</strong>. Use para atualizar quando o upload de arquivo falhar.</p>
+          <form id="adminPasteForm" class="grid">
+            <label>Conteúdo da planilha (colar Ctrl+V)
+              <textarea id="adminPasteInput" rows="7" placeholder="area	sku	tipo	paletes	acao
+A01	20104409	PA	30	"></textarea>
+            </label>
+            <label class="inline-check">
+              <input id="adminPasteSyncMode" type="checkbox" />
+              Sincronização agressiva (apaga tudo que não vier no conteúdo colado)
+            </label>
+            <div class="actions">
+              <button type="submit" class="secondary">Aplicar atualização ADM</button>
+            </div>
+          </form>
+        </div>
+
         <div class="card">
           <h2>Planilha espelho automática</h2>
           <p class="helper-text">Ative para baixar automaticamente uma planilha atualizada sempre que houver alteração no sistema.</p>
