@@ -33,6 +33,7 @@ const el = {
   lonilOcupado: document.getElementById('lonilOcupado'),
   ocupacaoProduto: document.getElementById('ocupacaoProduto'),
   ocupacaoStatus: document.getElementById('ocupacaoStatus'),
+  exportOcupacaoPdfBtn: document.getElementById('exportOcupacaoPdfBtn'),
   ocupacaoBody: document.querySelector('#ocupacaoTable tbody'),
   g1DetalheBody: document.querySelector('#g1DetalheTable tbody'),
   g1TotaisStatus: document.getElementById('g1TotaisStatus'),
@@ -443,9 +444,9 @@ function getOccupiedByWarehouse() {
   cache.estoque.forEach((row) => {
     const area = normalizeAreaCode(row.area);
     const pal = Number(row.paletes || 0);
-    if (/^TISSUE\d+$/.test(area)) {
+    if (/^TISSUE\d+[ED]?$/.test(area)) {
       g2 += pal;
-    } else if (/^LONIL\d+$/.test(area)) {
+    } else if (/^LONIL\d+[ED]?$/.test(area)) {
       g3 += pal;
     } else if (/^(A|B|C|D|BE|BD)\d+[ED]?$/.test(area)) {
       g1 += pal;
@@ -453,6 +454,57 @@ function getOccupiedByWarehouse() {
   });
 
   return { g1, g2, g3 };
+}
+
+function getPaletesResumoPorSetor() {
+  const resumo = { principal: 0, tissue: 0, lonil: 0, ttd: 0 };
+  cache.estoque.forEach((row) => {
+    const area = normalizeAreaCode(row.area);
+    const pal = Number(row.paletes || 0);
+    if (/^A\d+$/.test(area) || /^B\d+[ED]?$/.test(area) || /^C\d+$/.test(area)) {
+      resumo.principal += pal;
+    } else if (/^TISSUE\d+[ED]?$/.test(area)) {
+      resumo.tissue += pal;
+    } else if (/^LONIL\d+[ED]?$/.test(area)) {
+      resumo.lonil += pal;
+    } else if (/^TTD\d+[ED]?$/.test(area)) {
+      resumo.ttd += pal;
+    }
+  });
+  return resumo;
+}
+
+function exportOcupacaoResumoPDF() {
+  if (!window.jspdf) return showFeedback('Biblioteca de PDF não carregada.', 'error');
+  const resumo = getPaletesResumoPorSetor();
+  const linhas = [
+    ['Principal (Ruas A/B/C)', resumo.principal],
+    ['Tissue', resumo.tissue],
+    ['Lonil', resumo.lonil],
+    ['TTD', resumo.ttd]
+  ];
+
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF('portrait');
+  let y = 15;
+  pdf.setFontSize(14);
+  pdf.text('Resumo de Paletes por Setor', 10, y);
+  y += 8;
+  pdf.setFontSize(10);
+  pdf.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 10, y);
+  y += 10;
+
+  linhas.forEach(([nome, qtd]) => {
+    pdf.text(`${nome}: ${qtd} paletes`, 10, y);
+    y += 7;
+  });
+
+  y += 2;
+  const total = linhas.reduce((acc, item) => acc + Number(item[1] || 0), 0);
+  pdf.setFontSize(11);
+  pdf.text(`Total geral: ${total} paletes`, 10, y);
+  pdf.save('resumo_paletes_setores.pdf');
+  showFeedback('Resumo de paletes exportado em PDF com sucesso.');
 }
 
 function renderOcupacao() {
@@ -1703,6 +1755,7 @@ function init() {
   el.turnoForm?.addEventListener('submit', handleTurnoSubmit);
   el.exportTurnoExcelBtn?.addEventListener('click', exportTurnoResultadoExcel);
   el.exportTurnoPdfBtn?.addEventListener('click', exportTurnoResultadoPDF);
+  el.exportOcupacaoPdfBtn?.addEventListener('click', exportOcupacaoResumoPDF);
   el.paleteIncompletoToggle?.addEventListener('change', (event) => {
     el.paleteIncompletoFields?.classList.toggle('hidden', !event.target.checked);
   });
