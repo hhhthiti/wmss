@@ -814,6 +814,20 @@ function estimateLayersFromTotal(totalPaletes) {
   };
 }
 
+function hasManualContagemData(entry) {
+  return Boolean(
+    normalizeText(entry?.sku)
+    || Number(entry?.totalManual) > 0
+    || Number(entry?.profundidade1) > 0
+    || Number(entry?.largura1) > 0
+    || Number(entry?.profundidade2) > 0
+    || Number(entry?.largura2) > 0
+    || Number(entry?.paletesTerceira) > 0
+    || Number(entry?.paletesAjuste) > 0
+    || Number(entry?.fardosFaltando) > 0
+  );
+}
+
 function estimateContagemFromTurno(scope, side = 'ALL') {
   const skuTotals = turnoUltimaPlanilhaSku || {};
   const skusDisponiveis = Object.keys(skuTotals).filter((sku) => Number(skuTotals[sku]) > 0);
@@ -826,6 +840,7 @@ function estimateContagemFromTurno(scope, side = 'ALL') {
     entries.forEach((entry, idx) => {
       const sku = normalizeText(entry.sku);
       if (!sku || !Number(skuTotals[sku])) return;
+      if (hasManualContagemData(entry)) return;
       if (!targetsBySku[sku]) targetsBySku[sku] = [];
       targetsBySku[sku].push({ posicao, idx });
     });
@@ -1002,11 +1017,13 @@ function focusNextContagemInput(currentInput) {
 }
 
 function exportContagemExcel() {
-  const scope = el.contagemScope?.value;
-  const rows = getContagemPositions(scope, el.contagemSide?.value || 'ALL')
-    .flatMap((p) => getContagemEntries(p).map((entry, idx) => ({ ...computeContagem(p, entry, scope), entry_idx: idx + 1 })))
+  const allScopes = ['A', 'B', 'C', 'ESTRUTURA', 'TISSUE', 'TTD', 'LONIL'];
+  const rows = allScopes
+    .flatMap((scope) => getContagemPositions(scope, 'ALL')
+      .flatMap((p) => getContagemEntries(p).map((entry, idx) => ({ ...computeContagem(p, entry, scope), entry_idx: idx + 1, scope }))))
     .filter((row) => normalizeText(row.sku) && row.paletes > 0)
     .map((row) => ({
+      area_contagem: row.scope,
       posicao: row.posicao,
       sku: row.sku,
       item_posicao: row.entry_idx,
@@ -1036,7 +1053,7 @@ function exportContagemExcel() {
     { name: 'Contagem', data: rows },
     { name: 'Resumo_SKU', data: resumo }
   ]);
-  showFeedback('Contagem exportada com sucesso.');
+  showFeedback('Contagem exportada com sucesso (todas as áreas preenchidas).');
 }
 
 function setupContagem() {
