@@ -3,6 +3,36 @@ const defaultConfig = {
   key: 'sb_publishable_rIcKdaflOvJ0DLTJDcOrxA_bpTGG2hA'
 };
 
+
+function storageGet(key, fallback = null) {
+  try {
+    const value = window.localStorage.getItem(key);
+    return value === null ? fallback : value;
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function storageSet(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function storageGetJSON(key, fallback) {
+  const raw = storageGet(key, null);
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw);
+  } catch (_) {
+    return fallback;
+  }
+}
+
+
 const el = {
   paleteIncompletoToggle: document.getElementById('paleteIncompletoToggle'),
   paleteIncompletoFields: document.getElementById('paleteIncompletoFields'),
@@ -73,10 +103,10 @@ const el = {
 let supabaseClient;
 let cache = { estoque: [], movimentacoes: [], produtos: [] };
 let fracionadoMap = {};
-let turnoSnapshots = JSON.parse(localStorage.getItem('wmss_turno_snapshots') || '[]');
+let turnoSnapshots = storageGetJSON('wmss_turno_snapshots', []);
 let lastTurnoResultado = [];
-let turnoUltimaPlanilhaSku = JSON.parse(localStorage.getItem('wmss_turno_ultima_planilha_sku') || '{}');
-let contagemMap = JSON.parse(localStorage.getItem('wmss_contagem_map') || '{}');
+let turnoUltimaPlanilhaSku = storageGetJSON('wmss_turno_ultima_planilha_sku', {});
+let contagemMap = storageGetJSON('wmss_contagem_map', {});
 
 const manualOcupados = new Set([
   'A14', 'A15', 'A16', 'A17', 'A18', 'A19',
@@ -109,11 +139,11 @@ const capacidadePlanejamento = {
   C: 48
 };
 
-const autoExportEnabled = localStorage.getItem('wmss_auto_export') === '1';
+const autoExportEnabled = storageGet('wmss_auto_export', '0') === '1';
 if (el.autoExportToggle) el.autoExportToggle.checked = autoExportEnabled;
-fracionadoMap = JSON.parse(localStorage.getItem('wmss_fracionado_map') || '{}');
+fracionadoMap = storageGetJSON('wmss_fracionado_map', {});
 
-const darkModeEnabled = localStorage.getItem('wmss_theme') === 'dark';
+const darkModeEnabled = storageGet('wmss_theme', 'light') === 'dark';
 document.body.classList.toggle('dark', darkModeEnabled);
 if (el.themeToggleBtn) el.themeToggleBtn.textContent = darkModeEnabled ? '☀️ Modo claro' : '🌙 Modo escuro';
 
@@ -716,7 +746,7 @@ function saveContagemEntries(posicao, entries) {
     ...entry
   }));
   contagemMap[posicao] = normalized;
-  localStorage.setItem('wmss_contagem_map', JSON.stringify(contagemMap));
+  storageSet('wmss_contagem_map', JSON.stringify(contagemMap));
 }
 
 function addContagemEntry(posicao) {
@@ -1064,7 +1094,7 @@ async function handleEstoqueSubmit(event) {
     } else {
       delete fracionadoMap[chave];
     }
-    localStorage.setItem('wmss_fracionado_map', JSON.stringify(fracionadoMap));
+    storageSet('wmss_fracionado_map', JSON.stringify(fracionadoMap));
 
     showFeedback('Estoque salvo com sucesso.');
     event.target.reset();
@@ -1169,7 +1199,7 @@ function saveTurnoSnapshot(snapshotRows) {
   };
 
   turnoSnapshots = [item, ...turnoSnapshots].slice(0, 3);
-  localStorage.setItem('wmss_turno_snapshots', JSON.stringify(turnoSnapshots));
+  storageSet('wmss_turno_snapshots', JSON.stringify(turnoSnapshots));
   renderTurnoHistory();
 }
 
@@ -1209,7 +1239,7 @@ async function handleTurnoSubmit(event) {
       acc[key] = (acc[key] || 0) + paletes;
       return acc;
     }, {});
-    localStorage.setItem('wmss_turno_ultima_planilha_sku', JSON.stringify(turnoUltimaPlanilhaSku));
+    storageSet('wmss_turno_ultima_planilha_sku', JSON.stringify(turnoUltimaPlanilhaSku));
 
     const snapshotAnterior = turnoSnapshots[0]?.rows ?? null;
     const atual = snapshotAnterior ? consolidarPorChave(snapshotAnterior) : consolidarPorChave(cache.estoque);
@@ -1775,12 +1805,12 @@ function init() {
   el.themeToggleBtn?.addEventListener('click', () => {
     const isDark = !document.body.classList.contains('dark');
     document.body.classList.toggle('dark', isDark);
-    localStorage.setItem('wmss_theme', isDark ? 'dark' : 'light');
+    storageSet('wmss_theme', isDark ? 'dark' : 'light');
     el.themeToggleBtn.textContent = isDark ? '☀️ Modo claro' : '🌙 Modo escuro';
   });
   el.autoExportToggle?.addEventListener('change', (event) => {
     const enabled = event.target.checked;
-    localStorage.setItem('wmss_auto_export', enabled ? '1' : '0');
+    storageSet('wmss_auto_export', enabled ? '1' : '0');
     showFeedback(enabled ? 'Auto planilha ativado.' : 'Auto planilha desativado.');
   });
   createClient();
