@@ -961,6 +961,12 @@ function renderContagemTable() {
   });
 
   el.contagemBody.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      focusNextContagemInput(event.currentTarget);
+    });
+
     input.addEventListener('change', (event) => {
       const { posicao, entryIdx, field } = event.target.dataset;
       const entries = getContagemEntries(posicao);
@@ -980,6 +986,19 @@ function renderContagemTable() {
   });
 
   renderContagemResumo(computedRows);
+}
+
+
+function focusNextContagemInput(currentInput) {
+  if (!el.contagemBody || !currentInput) return;
+  const fields = Array.from(el.contagemBody.querySelectorAll('input'))
+    .filter((node) => !node.disabled && node.type !== 'hidden');
+  const idx = fields.indexOf(currentInput);
+  if (idx < 0) return;
+  const next = fields[idx + 1];
+  if (!next) return;
+  next.focus();
+  if (next.type !== 'checkbox') next.select?.();
 }
 
 function exportContagemExcel() {
