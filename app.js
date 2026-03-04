@@ -59,9 +59,6 @@ const el = {
   planejamentoResultado: document.getElementById('planejamentoResultado'),
   planejamentoBody: document.querySelector('#planejamentoTable tbody'),
   ocupacaoForm: document.getElementById('ocupacaoForm'),
-  tissueOcupado: document.getElementById('tissueOcupado'),
-  lonilOcupado: document.getElementById('lonilOcupado'),
-  ocupacaoProduto: document.getElementById('ocupacaoProduto'),
   ocupacaoStatus: document.getElementById('ocupacaoStatus'),
   exportOcupacaoPdfBtn: document.getElementById('exportOcupacaoPdfBtn'),
   ocupacaoBody: document.querySelector('#ocupacaoTable tbody'),
@@ -116,9 +113,10 @@ const manualOcupados = new Set([
 ]);
 
 const capacidadeGalpoes = {
-  G1: 3417,
-  G2: 1728,
-  G3: 1112
+  principal: 3417,
+  tissue: 1728,
+  lonil: 1112,
+  ttd: 0
 };
 
 const g1Modelo = [
@@ -466,49 +464,70 @@ function renderConsulta() {
   renderOcupacao();
 }
 
-function getOccupiedByWarehouse() {
-  let g1 = 0;
-  let g2 = 0;
-  let g3 = 0;
+function inferContagemScopeFromPosicao(posicao) {
+  const p = normalizeAreaCode(posicao);
+  if (/^A\d+$/.test(p)) return 'A';
+  if (/^B\d+[ED]?$/.test(p) || /^BD\d+$/.test(p) || /^BE\d+$/.test(p)) return 'B';
+  if (/^C\d+$/.test(p)) return 'C';
+  if (/^(R\d+\.\d+|CHAOESTRUTURA)$/.test(p)) return 'ESTRUTURA';
+  if (p.startsWith('TISSUE')) return 'TISSUE';
+  if (p.startsWith('LONIL')) return 'LONIL';
+  if (p.startsWith('TTD')) return 'TTD';
+  return null;
+}
 
+function getOccupiedByWarehouse() {
+  const fromEstoque = { principal: 0, tissue: 0, lonil: 0, ttd: 0 };
   cache.estoque.forEach((row) => {
     const area = normalizeAreaCode(row.area);
     const pal = Number(row.paletes || 0);
     if (/^TISSUE\d+[ED]?$/.test(area)) {
-      g2 += pal;
+      fromEstoque.tissue += pal;
     } else if (/^LONIL\d+[ED]?$/.test(area)) {
-      g3 += pal;
+      fromEstoque.lonil += pal;
+    } else if (/^TTD\d+[ED]?$/.test(area)) {
+      fromEstoque.ttd += pal;
     } else if (/^(A|B|C|D|BE|BD)\d+[ED]?$/.test(area)) {
-      g1 += pal;
+      fromEstoque.principal += pal;
     }
   });
 
-  return { g1, g2, g3 };
+  const fromContagem = { principal: 0, tissue: 0, lonil: 0, ttd: 0, linhas: 0 };
+  Object.entries(contagemMap || {}).forEach(([posicao, rawEntries]) => {
+    const scope = inferContagemScopeFromPosicao(posicao);
+    if (!scope) return;
+    const entries = Array.isArray(rawEntries) ? rawEntries : (rawEntries ? [rawEntries] : []);
+    entries.forEach((entry) => {
+      const result = computeContagem(posicao, entry, scope);
+      if (result.paletes <= 0) return;
+      if (['A', 'B', 'C', 'ESTRUTURA'].includes(scope)) fromContagem.principal += Number(result.paletes || 0);
+      else if (scope === 'TISSUE') fromContagem.tissue += Number(result.paletes || 0);
+      else if (scope === 'LONIL') fromContagem.lonil += Number(result.paletes || 0);
+      else if (scope === 'TTD') fromContagem.ttd += Number(result.paletes || 0);
+      fromContagem.linhas += 1;
+    });
+  });
+
+  const useContagem = fromContagem.linhas > 0;
+  return {
+    principal: useContagem ? fromContagem.principal : fromEstoque.principal,
+    tissue: useContagem ? fromContagem.tissue : fromEstoque.tissue,
+    lonil: useContagem ? fromContagem.lonil : fromEstoque.lonil,
+    ttd: useContagem ? fromContagem.ttd : fromEstoque.ttd,
+    source: useContagem ? 'contagem' : 'sistema'
+  };
 }
 
 function getPaletesResumoPorSetor() {
-  const resumo = { principal: 0, tissue: 0, lonil: 0, ttd: 0 };
-  cache.estoque.forEach((row) => {
-    const area = normalizeAreaCode(row.area);
-    const pal = Number(row.paletes || 0);
-    if (/^A\d+$/.test(area) || /^B\d+[ED]?$/.test(area) || /^C\d+$/.test(area)) {
-      resumo.principal += pal;
-    } else if (/^TISSUE\d+[ED]?$/.test(area)) {
-      resumo.tissue += pal;
-    } else if (/^LONIL\d+[ED]?$/.test(area)) {
-      resumo.lonil += pal;
-    } else if (/^TTD\d+[ED]?$/.test(area)) {
-      resumo.ttd += pal;
-    }
-  });
-  return resumo;
+  const { principal, tissue, lonil, ttd } = getOccupiedByWarehouse();
+  return { principal, tissue, lonil, ttd };
 }
 
 function exportOcupacaoResumoPDF() {
   if (!window.jspdf) return showFeedback('Biblioteca de PDF não carregada.', 'error');
   const resumo = getPaletesResumoPorSetor();
   const linhas = [
-    ['Principal (Ruas A/B/C)', resumo.principal],
+    ['Principal (Ruas A/B/C + Estruturas)', resumo.principal],
     ['Tissue', resumo.tissue],
     ['Lonil', resumo.lonil],
     ['TTD', resumo.ttd]
@@ -541,30 +560,27 @@ function renderOcupacao() {
   if (!el.ocupacaoBody) return;
   el.ocupacaoBody.innerHTML = '';
 
-  const { g1, g2, g3 } = getOccupiedByWarehouse();
-  const tissueManual = Number(el.tissueOcupado?.value);
-  const lonilManual = Number(el.lonilOcupado?.value);
-  const produto = el.ocupacaoProduto?.value?.trim() || 'N/D';
-
-  const g2Estimado = Number.isFinite(tissueManual) && tissueManual >= 0 ? tissueManual : g2;
-  const g3Estimado = Number.isFinite(lonilManual) && lonilManual >= 0 ? lonilManual : g3;
+  const { principal, tissue, lonil, ttd, source } = getOccupiedByWarehouse();
 
   const rows = [
-    ['G1 - Principal', capacidadeGalpoes.G1, g1],
-    [`G2 - Tissue (${produto})`, capacidadeGalpoes.G2, g2Estimado],
-    [`G3 - Lonil (${produto})`, capacidadeGalpoes.G3, g3Estimado]
+    ['Principal (A+B+C+Estruturas)', capacidadeGalpoes.principal, principal],
+    ['Tissue', capacidadeGalpoes.tissue, tissue],
+    ['Lonil', capacidadeGalpoes.lonil, lonil],
+    ['TTD', capacidadeGalpoes.ttd, ttd]
   ];
 
   rows.forEach(([nome, capacidade, ocupado]) => {
-    const disponivel = Math.max(0, capacidade - ocupado);
-    const percentual = capacidade ? ((ocupado / capacidade) * 100).toFixed(1) : '0.0';
+    const possuiCapacidade = Number.isFinite(Number(capacidade)) && Number(capacidade) > 0;
+    const disponivel = possuiCapacidade ? Math.max(0, Number(capacidade) - Number(ocupado)) : '-';
+    const percentual = possuiCapacidade ? `${((Number(ocupado) / Number(capacidade)) * 100).toFixed(1)}%` : '-';
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${nome}</td><td>${capacidade}</td><td>${ocupado}</td><td>${disponivel}</td><td>${percentual}%</td>`;
+    tr.innerHTML = `<td>${nome}</td><td>${possuiCapacidade ? capacidade : '-'}</td><td>${ocupado}</td><td>${disponivel}</td><td>${percentual}</td>`;
     el.ocupacaoBody.appendChild(tr);
   });
 
-  const usandoManual = (Number.isFinite(tissueManual) && tissueManual >= 0) || (Number.isFinite(lonilManual) && lonilManual >= 0);
-  setStatus(el.ocupacaoStatus, usandoManual ? 'Ocupação atualizada com contagem manual.' : 'Ocupação atualizada com dados do sistema.', 'success');
+  setStatus(el.ocupacaoStatus, source === 'contagem'
+    ? 'Ocupação atualizada com base na Contagem manual (prioridade sobre sistema).'
+    : 'Ocupação atualizada com dados do sistema.', 'success');
 }
 
 function calcularLinhaG1(item) {

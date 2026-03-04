@@ -248,17 +248,8 @@ A01	20104409	PA	30	"></textarea>
       <section id="ocupacao" class="tab-content">
         <div class="card">
           <h2>Cálculo de ocupação do galpão</h2>
-          <p class="helper-text">Informe paletes ocupados quando fizer contagem manual. O percentual é calculado automaticamente.</p>
+          <p class="helper-text">A ocupação agora prioriza a Contagem manual (A/B/C + Estruturas + Tissue + Lonil + TTD). Se não houver contagem preenchida, usa o sistema.</p>
           <form id="ocupacaoForm" class="grid two-col">
-            <label>Tissue (paletes ocupados)
-              <input id="tissueOcupado" type="number" min="0" placeholder="Ex.: 792" />
-            </label>
-            <label>Lonil (paletes ocupados)
-              <input id="lonilOcupado" type="number" min="0" placeholder="Ex.: 412" />
-            </label>
-            <label>Produto de referência
-              <input id="ocupacaoProduto" type="text" value="Suzano" />
-            </label>
             <div class="actions"><button type="submit">Atualizar ocupação</button><button id="exportOcupacaoPdfBtn" type="button" class="secondary">Exportar resumo (PDF)</button></div>
           </form>
           <p id="ocupacaoStatus" class="status"></p>
