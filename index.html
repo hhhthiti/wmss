@@ -14,29 +14,19 @@
     <header>
       <h1>Controle de Estoque por Área</h1>
       <p>Cadastro, consulta e expedição de produtos</p>
+      <button id="themeToggleBtn" class="secondary" type="button" aria-label="Alternar modo escuro">🌙 Modo escuro</button>
     </header>
 
     <main>
-      <section class="card config-card">
-        <h2>Configuração Supabase</h2>
-        <div class="grid two-col">
-          <label>
-            Project URL
-            <input id="supabaseUrl" type="url" />
-          </label>
-          <label>
-            Publishable Key
-            <input id="supabaseKey" type="text" />
-          </label>
-        </div>
-        <button id="connectBtn">Conectar</button>
-        <p id="connectionStatus" class="status"></p>
-      </section>
+      
 
       <nav class="tabs">
         <button class="tab-btn active" data-tab="cadastro">Cadastro</button>
         <button class="tab-btn" data-tab="consulta">Consulta</button>
-        <button class="tab-btn" data-tab="expedicao">Expedição</button>
+        <button class="tab-btn" data-tab="expedicao">Conferência de turno</button>
+        <button class="tab-btn" data-tab="planejamento">Planejamento</button>
+        <button class="tab-btn" data-tab="ocupacao">Ocupação</button>
+        <button class="tab-btn" data-tab="contagem">Contagem</button>
       </nav>
 
       <section id="cadastro" class="tab-content active">
@@ -53,6 +43,15 @@
               </select>
             </label>
             <label>Paletes <input name="paletes" type="number" min="1" required /></label>
+            <label>Fardos por palete (SKU novo) <input name="fardos_por_palete" type="number" min="1" placeholder="Ex.: 36" /></label>
+            <label class="inline-check">
+              <input id="paleteIncompletoToggle" type="checkbox" />
+              Possui palete(s) incompleto(s)
+            </label>
+            <div id="paleteIncompletoFields" class="grid two-col hidden">
+              <label>Qtd de paletes incompletos <input name="paletes_incompletos" type="number" min="1" value="1" /></label>
+              <label>Total de fardos nos incompletos <input name="fardos_incompletos" type="number" min="1" /></label>
+            </div>
             <div class="actions">
               <button type="submit">Salvar / Atualizar</button>
             </div>
@@ -78,15 +77,42 @@
             Caso contrário, será feito incluir/atualizar.
           </p>
           <form id="importForm" class="grid form-grid">
-            <label>
+            <label class="file-picker-label">
               Arquivo (.xlsx/.xls/.csv)
               <input id="importFile" type="file" accept=".xlsx,.xls,.csv" required />
+              <span id="importFileName" class="file-name">Nenhum arquivo selecionado</span>
             </label>
-            <div class="actions"><button type="submit">Processar planilha</button></div>
+            <label class="inline-check">
+              <input id="importSyncMode" type="checkbox" />
+              Sincronização agressiva: apagar do sistema tudo que não estiver na planilha
+            </label>
+            <div class="actions">
+              <button id="selectImportBtn" type="button" class="secondary">Selecionar planilha</button>
+              <button type="submit">Processar planilha</button>
+            </div>
           </form>
         </div>
 
 
+
+
+        <div class="card">
+          <h2>ADM: atualizar por colar planilha</h2>
+          <p class="helper-text">Cole aqui o conteúdo copiado do Excel (com cabeçalho). Aceita colunas <strong>area</strong>, <strong>sku</strong>, <strong>tipo</strong>, <strong>paletes</strong> e opcional <strong>acao</strong>. Use para atualizar quando o upload de arquivo falhar.</p>
+          <form id="adminPasteForm" class="grid">
+            <label>Conteúdo da planilha (colar Ctrl+V)
+              <textarea id="adminPasteInput" rows="7" placeholder="area	sku	tipo	paletes	acao
+A01	20104409	PA	30	"></textarea>
+            </label>
+            <label class="inline-check">
+              <input id="adminPasteSyncMode" type="checkbox" />
+              Sincronização agressiva (apaga tudo que não vier no conteúdo colado)
+            </label>
+            <div class="actions">
+              <button type="submit" class="secondary">Aplicar atualização ADM</button>
+            </div>
+          </form>
+        </div>
 
         <div class="card">
           <h2>Planilha espelho automática</h2>
@@ -130,6 +156,7 @@
 
         <div class="card">
           <h2>Totais por SKU (todas as áreas)</h2>
+          <p class="helper-text">Observação: a área <strong>C01</strong> (retrabalho) não entra na contagem de totais.</p>
           <div class="table-wrapper">
             <table id="totaisSkuTable">
               <thead><tr><th>SKU</th><th>Total Paletes</th></tr></thead>
@@ -138,47 +165,200 @@
           </div>
           <button id="exportConsultaBtn" class="secondary">Exportar planilha (consulta + totais SKU)</button>
         </div>
+
+        <div class="card">
+          <h2>Sobras B01 (esquerdo/direito)</h2>
+          <p class="helper-text">Lista rápida dos SKUs misturados em B01, B01E e B01D.</p>
+          <div class="table-wrapper">
+            <table id="sobrasB01Table">
+              <thead><tr><th>Área</th><th>SKU</th><th>Tipo</th><th>Paletes</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <section id="expedicao" class="tab-content">
         <div class="card">
-          <h2>Expedir (retirar do estoque)</h2>
-          <form id="expedicaoForm" class="grid form-grid">
-            <label>Área <input name="area" required placeholder="Ex.: B02" /></label>
-            <label>SKU <input name="sku" type="number" required /></label>
-            <label>Tipo
-              <select name="tipo" required>
-                <option value="PL2">PL2</option>
-                <option value="PBR">PBR</option>
-                <option value="FARDO">FARDO</option>
-              </select>
+          <h2>Conferência por planilha (fim de turno)</h2>
+          <p class="helper-text">Suba a planilha da contagem final do dia. O sistema salva esse snapshot e compara com o snapshot anterior.</p>
+          <p class="helper-text">Histórico local: mantém as últimas 3 atualizações para comparar dia atual x dia anterior sem sobrecarregar o banco.</p>
+          <form id="turnoForm" class="grid form-grid">
+            <label>
+              Planilha final (.xlsx/.xls/.csv)
+              <input id="turnoFile" type="file" accept=".xlsx,.xls,.csv" required />
             </label>
-            <label>Quantidade para expedir <input name="paletes" type="number" min="1" required /></label>
-            <div class="actions"><button type="submit" class="danger">Expedir / Dar baixa</button></div>
+            <div class="actions"><button type="submit">Calcular saída do turno</button></div>
           </form>
+          <p id="turnoStatus" class="status"></p>
+          <div class="actions">
+            <button id="exportTurnoExcelBtn" type="button" class="secondary">Exportar resultado (Excel)</button>
+            <button id="exportTurnoPdfBtn" type="button" class="secondary">Exportar resultado (PDF)</button>
+          </div>
         </div>
 
         <div class="card">
-          <h2>Histórico de expedição</h2>
+          <h2>Histórico de snapshots (últimos 3)</h2>
           <div class="table-wrapper">
-            <table id="movimentacoesTable">
-              <thead><tr><th>Data</th><th>SKU</th><th>Tipo</th><th>Qtd expedida</th></tr></thead>
+            <table id="turnoHistoryTable">
+              <thead><tr><th>Data</th><th>Registros</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
-          <button id="exportExpedicaoBtn" class="secondary">Exportar planilha (expedidas + totais SKU expedido)</button>
+        </div>
+
+        <div class="card">
+          <h2>Saída calculada por SKU</h2>
+          <div class="table-wrapper">
+            <table id="turnoSkuTable">
+              <thead><tr><th>SKU</th><th>Tipo</th><th>Paletes saíram</th><th>Fardos estimados</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="planejamento" class="tab-content">
+        <div class="card">
+          <h2>Planejamento de recebimento (NF)</h2>
+          <p class="helper-text">Informe previsão de chegada por SKU para estimar ocupação e blocados que precisam ser desfeitos.</p>
+          <form id="planejamentoForm" class="grid">
+            <label>
+              Previsão de chegada (uma linha por SKU: <code>SKU,PALETES</code>)
+              <textarea id="previsaoEntrada" rows="5" placeholder="20104409,30&#10;30152626,18"></textarea>
+            </label>
+            <label>
+              Ou subir planilha de previsão (.xlsx/.xls/.csv) com colunas <strong>sku</strong> e <strong>paletes</strong>
+              <input id="planejamentoFile" type="file" accept=".xlsx,.xls,.csv" />
+            </label>
+            <div class="actions">
+              <button type="submit">Calcular planejamento</button>
+            </div>
+          </form>
+          <div id="planejamentoResultado" class="status"></div>
+          <div class="table-wrapper">
+            <table id="planejamentoTable">
+              <thead><tr><th>Bloco</th><th>Capacidade</th><th>Ocupado</th><th>Livre</th><th>Após NF</th><th>Ação</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="ocupacao" class="tab-content">
+        <div class="card">
+          <h2>Cálculo de ocupação do galpão</h2>
+          <p class="helper-text">A ocupação agora prioriza a Contagem manual (A/B/C + Estruturas + Tissue + Lonil + TTD). Se não houver contagem preenchida, usa o sistema.</p>
+          <form id="ocupacaoForm" class="grid two-col">
+            <div class="actions"><button type="submit">Atualizar ocupação</button><button id="exportOcupacaoPdfBtn" type="button" class="secondary">Exportar resumo (PDF)</button></div>
+          </form>
+          <p id="ocupacaoStatus" class="status"></p>
+          <div class="table-wrapper">
+            <table id="ocupacaoTable">
+              <thead><tr><th>Galpão</th><th>Capacidade útil</th><th>Ocupado</th><th>Disponível</th><th>%</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Detalhe G1 por bloco (fórmula: posições × pallet - bloqueado)</h2>
+          <div class="table-wrapper">
+            <table id="g1DetalheTable">
+              <thead>
+                <tr>
+                  <th>Bloco</th><th>Posições</th><th>Pallet/posição</th><th>Bloqueado</th><th>Total</th><th>Terceiros</th><th>Disponível</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p id="g1TotaisStatus" class="status"></p>
+        </div>
+      </section>
+
+      <section id="contagem" class="tab-content">
+        <div class="card">
+          <h2>Contagem por rua/estrutura</h2>
+          <p class="helper-text">Selecione a área. Use o botão <strong>+</strong> para adicionar mais de 1 SKU na mesma posição. Para importar planilha, o formato recomendado é: <strong>sku</strong>, <strong>deposito</strong> (principal/estruturas/lonil/tissue/ttd), <strong>quadrante</strong> (A01, B02D, chão direito/esquerdo), <strong>qtd plt</strong> e <strong>tipo plt</strong> (PL2/PBR).</p>
+          <form id="contagemForm" class="grid two-col">
+            <label>Área de contagem
+              <select id="contagemScope">
+                <option value="A">Rua A</option>
+                <option value="B">Rua B</option>
+                <option value="C">Rua C</option>
+                <option value="ESTRUTURA">Estrutura</option>
+                <option value="TISSUE">Tissue</option>
+                <option value="TTD">TTD</option>
+                <option value="LONIL">Lonil</option>
+              </select>
+            </label>
+            <label id="contagemSideLabel">Lado (Rua B / Tissue / TTD / Lonil)
+              <select id="contagemSide">
+                <option value="ALL">Direito + Esquerdo</option>
+                <option value="D">Somente direito</option>
+                <option value="E">Somente esquerdo</option>
+              </select>
+            </label>
+            <label>Importar planilha para pré-preenchimento
+              <input id="contagemFile" type="file" accept=".xlsx,.xls,.csv" />
+            </label>
+            <div class="actions">
+              <button id="contagemLoadBtn" type="button" class="secondary">Carregar posições</button>
+              <button id="contagemImportBtn" type="button" class="secondary">Preencher pela planilha</button>
+              <button id="contagemEstimateBtn" type="button" class="secondary">Estimar pela conferência</button>
+              <button type="submit">Calcular</button>
+              <button id="contagemApplyBtn" type="button">Atualizar consulta (confirmados)</button>
+              <button id="contagemExportBtn" type="button" class="secondary">Exportar Excel (todas as áreas)</button>
+            </div>
+          </form>
+          <p id="contagemStatus" class="status"></p>
+          <div class="table-wrapper">
+            <table id="contagemTable">
+              <thead>
+                <tr>
+                  <th>+</th><th>Posição</th><th>SKU</th>
+                  <th>Confirmar?</th>
+                  <th>Prof. 1ª</th><th>Larg. 1ª</th>
+                  <th>2ª camada?</th><th>Prof. 2ª</th><th>Larg. 2ª</th>
+                  <th>3ª camada?</th><th>Paletes 3ª</th>
+                  <th>Fardos faltando (palete não inteiro)</th>
+                  <th>Usar total editável?</th><th>Total editável</th><th>Paletes</th><th>Fardos</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Resumo por SKU</h2>
+          <div class="table-wrapper">
+            <table id="contagemResumoTable">
+              <thead><tr><th>SKU</th><th>Paletes</th><th>Fardos</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </section>
 
       <div id="layoutContainer" class="layout-container hidden">
         <div class="layout-header">
-          <h2>Layout do Estoque (TISSUE | C | BE | BD | A | LONIL)</h2>
+          <h2>Layout do Estoque (TISSUE | C | BE | BD | B | A | LONIL)</h2>
           <div class="layout-header-actions">
             <button id="exportLayoutPdfBtn" class="secondary">Exportar PDF</button>
             <button id="fecharLayoutBtn" class="danger">Fechar</button>
           </div>
         </div>
         <div id="layoutGrid" class="layout-grid"></div>
+        <div class="estruturas-section">
+          <h3>Estruturas / Túnel (somente caixas)</h3>
+          <div id="estruturasGrid" class="estruturas-grid"></div>
+        </div>
+        <div class="semantico-section">
+          <h3>Mapa semântico (somente áreas físicas)</h3>
+          <div id="semanticLayout" class="semantic-layout"></div>
+        </div>
       </div>
 
       <p id="feedback" class="status"></p>
