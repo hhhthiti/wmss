@@ -1,0 +1,101 @@
+:root {
+  --bg: #101728;
+  --card: #172239;
+  --text: #f4f7ff;
+  --accent: #ffca3a;
+  --danger: #ff595e;
+  --ok: #34d399;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: Inter, system-ui, sans-serif;
+  background: radial-gradient(circle at top, #1f2f52, var(--bg));
+  color: var(--text);
+}
+
+.game-shell {
+  min-height: 100vh;
+  max-width: 540px;
+  margin: 0 auto;
+  padding: 1rem;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.hud {
+  background: var(--card);
+  border-radius: 14px;
+  padding: 0.8rem;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  text-align: center;
+}
+
+.label {
+  margin: 0;
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+
+h1, h2 { margin: 0.2rem 0 0; font-size: 1.2rem; }
+
+.arena-wrap {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
+  padding: 0.7rem;
+}
+
+.arena {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1/1;
+  background: #0b1220;
+  border-radius: 10px;
+  border: 2px solid rgba(255,255,255,0.15);
+  overflow: hidden;
+}
+
+.hero, .npc, .enemy {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+}
+
+.hero { background: var(--accent); box-shadow: 0 0 14px rgba(255,202,58,.6); }
+.npc { background: var(--ok); }
+.enemy { background: var(--danger); }
+
+.controls {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+}
+
+button {
+  border: 0;
+  border-radius: 10px;
+  padding: 0.75rem;
+  font-size: 1rem;
+  font-weight: 700;
+  background: #2a3f67;
+  color: white;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+#nextPhaseBtn { background: #3c7d3f; }
+.secondary { background: #5f6678; }
+
+.message {
+  min-height: 1.8rem;
+  text-align: center;
+  margin: 0;
+}

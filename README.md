@@ -117,3 +117,18 @@ Quando ativo, após ações de cadastro/edição, exclusão, importação e expe
 - totais expedidos por SKU.
 
 > Importante: por segurança do navegador, não é possível editar automaticamente o mesmo arquivo Excel já aberto no seu computador. O que o sistema faz é gerar uma nova versão atualizada da planilha.
+
+## Demo de jogo mobile de resgate
+
+Adicionado um protótipo jogável em:
+
+- `resgate-game.html`
+
+Tema da demo: salvar personagens em várias fases (princesa, rei, camponesa + criança etc.), com controle por botões touch e setas do teclado.
+
+Para rodar:
+
+```bash
+python3 -m http.server 4173
+# abrir http://localhost:4173/resgate-game.html
+```

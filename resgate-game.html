@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Resgate Real - Demo Mobile</title>
+    <link rel="stylesheet" href="resgate-game.css" />
+  </head>
+  <body>
+    <main class="game-shell">
+      <header class="hud">
+        <div>
+          <p class="label">Fase</p>
+          <h1 id="phaseTitle">1</h1>
+        </div>
+        <div>
+          <p class="label">Vidas</p>
+          <h2 id="lives">3</h2>
+        </div>
+        <div>
+          <p class="label">Objetivo</p>
+          <h2 id="goal">Princesa</h2>
+        </div>
+      </header>
+
+      <section class="arena-wrap">
+        <div id="arena" class="arena">
+          <div id="hero" class="hero" aria-label="Herói"></div>
+        </div>
+      </section>
+
+      <section class="controls">
+        <button data-dir="left">◀</button>
+        <button data-dir="up">▲</button>
+        <button data-dir="down">▼</button>
+        <button data-dir="right">▶</button>
+      </section>
+
+      <section class="actions">
+        <button id="nextPhaseBtn">Próxima fase</button>
+        <button id="restartBtn" class="secondary">Reiniciar</button>
+      </section>
+
+      <p id="message" class="message">Chegue no refém evitando os inimigos.</p>
+    </main>
+
+    <script src="resgate-game.js"></script>
+  </body>
+</html>
