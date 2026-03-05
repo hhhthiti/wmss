@@ -893,17 +893,56 @@ async function importContagemFromPlanilha() {
     const buffer = await file.arrayBuffer();
     const workbook = XLSX.read(buffer, { type: 'array' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' }).map(mapImportRow);
+    const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
     const scope = el.contagemScope?.value;
     const side = el.contagemSide?.value || 'ALL';
     const positions = new Set(getContagemPositions(scope, side));
-    const validRows = rows
-      .filter((row) => positions.has(normalizeAreaCode(row.area)))
-      .filter((row) => Number.isFinite(Number(row.sku)) && Number(row.paletes) > 0)
+    const planRows = rawRows
+      .map((raw) => {
+        const row = Object.fromEntries(
+          Object.entries(raw).map(([k, v]) => [String(k).trim().toLowerCase(), v])
+        );
+        return {
+          area: normalizeAreaCode(row.area ?? row['área'] ?? row.posicao ?? row['posição'] ?? row.endereco ?? row.endereço),
+          sku: Number(row.sku ?? row.codsku ?? row['cód_sku']),
+          paletes: Number(row.paletes ?? row.pallets ?? row.quantidade),
+          lado: normalizeText(row.lado ?? row.side),
+          setor: normalizeText(row.setor ?? row.rua ?? row.area_contagem)
+        };
+      })
+      .filter((row) => Number.isFinite(row.sku) && row.paletes > 0);
+
+    const autoIndex = {};
+    const validRows = planRows
+      .map((row) => {
+        let area = normalizeAreaCode(row.area);
+        const scopeNorm = normalizeText(scope);
+
+        if (!area && ['TISSUE', 'TTD', 'LONIL'].includes(scopeNorm)) {
+          const preferredSide = row.lado === 'DIREITO' ? 'D'
+            : row.lado === 'ESQUERDO' ? 'E'
+              : (['D', 'E'].includes(row.lado) ? row.lado : (side === 'ALL' ? 'D' : side));
+          const key = `${scopeNorm}_${preferredSide}`;
+          autoIndex[key] = (autoIndex[key] || 0) + 1;
+          area = `${scopeNorm}${String(autoIndex[key]).padStart(2, '0')}${preferredSide}`;
+        }
+
+        if (!area && ['A', 'B', 'C'].includes(scopeNorm)) return null;
+        if (scopeNorm === 'A' && /^\d+$/.test(area)) area = `A${String(Number(area)).padStart(2, '0')}`;
+        if (scopeNorm === 'C' && /^\d+$/.test(area)) area = `C${String(Number(area)).padStart(2, '0')}`;
+        if (scopeNorm === 'B' && /^B?\d+$/.test(area)) {
+          const num = String(Number(area.replace(/^B/, ''))).padStart(2, '0');
+          const bSide = side === 'ALL' ? 'D' : side;
+          area = `B${num}${bSide}`;
+        }
+
+        return { ...row, area };
+      })
+      .filter((row) => row && positions.has(normalizeAreaCode(row.area)))
       .sort((a, b) => normalizeAreaCode(a.area).localeCompare(normalizeAreaCode(b.area), 'pt-BR', { numeric: true }));
 
     if (!validRows.length) {
-      setStatus(el.contagemStatus, 'Nenhuma linha da planilha bate com a área/lado selecionado.', 'error');
+      setStatus(el.contagemStatus, 'Nenhuma linha bateu com a área/lado. Campos aceitos: area/posição/endereço + sku + paletes/quantidade. Para Tissue/TTD/Lonil, pode usar coluna lado (D/E ou direito/esquerdo).', 'error');
       return;
     }
 
