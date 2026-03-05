@@ -739,7 +739,8 @@ function getContagemEntries(posicao) {
     paletesAjuste: Number(item.paletesAjuste || 0),
     fardosFaltando: Number(item.fardosFaltando || 0),
     totalManual: Number(item.totalManual || 0),
-    confirmada: Boolean(item.confirmada)
+    confirmada: Boolean(item.confirmada),
+    tipoPlt: normalizeText(item.tipoPlt)
   }));
 }
 
@@ -757,7 +758,8 @@ function createEmptyContagemEntry() {
     paletesAjuste: 0,
     fardosFaltando: 0,
     totalManual: 0,
-    confirmada: false
+    confirmada: false,
+    tipoPlt: ''
   };
 }
 
@@ -897,31 +899,45 @@ async function importContagemFromPlanilha() {
     const scope = el.contagemScope?.value;
     const side = el.contagemSide?.value || 'ALL';
     const positions = new Set(getContagemPositions(scope, side));
+    const scopeNorm = normalizeText(scope);
+    const normalizeHeader = (key) => String(key || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    const isScopeCompatible = (deposito) => {
+      const dep = normalizeText(deposito);
+      if (!dep) return true;
+      if (scopeNorm === 'ESTRUTURA') return dep.includes('ESTRUT');
+      if (['TISSUE', 'TTD', 'LONIL'].includes(scopeNorm)) return dep.includes(scopeNorm);
+      if (['A', 'B', 'C'].includes(scopeNorm)) return dep.includes('PRINCIPAL');
+      return true;
+    };
+
     const planRows = rawRows
       .map((raw) => {
-        const row = Object.fromEntries(
-          Object.entries(raw).map(([k, v]) => [String(k).trim().toLowerCase(), v])
-        );
+        const row = Object.fromEntries(Object.entries(raw).map(([k, v]) => [normalizeHeader(k), v]));
         return {
-          area: normalizeAreaCode(row.area ?? row['área'] ?? row.posicao ?? row['posição'] ?? row.endereco ?? row.endereço),
-          sku: Number(row.sku ?? row.codsku ?? row['cód_sku']),
-          paletes: Number(row.paletes ?? row.pallets ?? row.quantidade),
+          deposito: normalizeText(row.deposito ?? row.setor ?? row.rua ?? row.area_contagem),
+          quadrante: normalizeText(row.quadrante ?? row.area ?? row.posicao ?? row.endereco),
+          area: normalizeAreaCode(row.quadrante ?? row.area ?? row.posicao ?? row.endereco),
+          sku: Number(row.sku ?? row.codsku ?? row.cod_sku),
+          paletes: Number(row.qtd_plt ?? row['qtd plt'] ?? row.paletes ?? row.pallets ?? row.quantidade),
+          tipoPlt: normalizeText(row.tipo_plt ?? row['tipo plt'] ?? row.tipo),
           lado: normalizeText(row.lado ?? row.side),
           setor: normalizeText(row.setor ?? row.rua ?? row.area_contagem)
         };
       })
-      .filter((row) => Number.isFinite(row.sku) && row.paletes > 0);
+      .filter((row) => Number.isFinite(row.sku) && row.paletes > 0)
+      .filter((row) => isScopeCompatible(row.deposito));
 
     const autoIndex = {};
     const validRows = planRows
       .map((row) => {
         let area = normalizeAreaCode(row.area);
-        const scopeNorm = normalizeText(scope);
+        
 
         if (!area && ['TISSUE', 'TTD', 'LONIL'].includes(scopeNorm)) {
+          const sideFromQuadrante = row.quadrante.includes('DIREIT') ? 'D' : (row.quadrante.includes('ESQUERD') ? 'E' : '');
           const preferredSide = row.lado === 'DIREITO' ? 'D'
             : row.lado === 'ESQUERDO' ? 'E'
-              : (['D', 'E'].includes(row.lado) ? row.lado : (side === 'ALL' ? 'D' : side));
+              : (['D', 'E'].includes(row.lado) ? row.lado : (sideFromQuadrante || (side === 'ALL' ? 'D' : side)));
           const key = `${scopeNorm}_${preferredSide}`;
           autoIndex[key] = (autoIndex[key] || 0) + 1;
           area = `${scopeNorm}${String(autoIndex[key]).padStart(2, '0')}${preferredSide}`;
@@ -936,13 +952,13 @@ async function importContagemFromPlanilha() {
           area = `B${num}${bSide}`;
         }
 
-        return { ...row, area };
+        return { ...row, area, tipoPlt: ['PL2', 'PBR'].includes(row.tipoPlt) ? row.tipoPlt : '' };
       })
       .filter((row) => row && positions.has(normalizeAreaCode(row.area)))
       .sort((a, b) => normalizeAreaCode(a.area).localeCompare(normalizeAreaCode(b.area), 'pt-BR', { numeric: true }));
 
     if (!validRows.length) {
-      setStatus(el.contagemStatus, 'Nenhuma linha bateu com a área/lado. Campos aceitos: area/posição/endereço + sku + paletes/quantidade. Para Tissue/TTD/Lonil, pode usar coluna lado (D/E ou direito/esquerdo).', 'error');
+      setStatus(el.contagemStatus, 'Nenhuma linha bateu com a área/lado. Planilha aceita: sku, deposito, quadrante, qtd plt e tipo plt (ou aliases area/posição/endereço + paletes/quantidade).', 'error');
       return;
     }
 
@@ -961,6 +977,7 @@ async function importContagemFromPlanilha() {
           sku: String(row.sku),
           totalManual: total,
           confirmada: false,
+          tipoPlt: row.tipoPlt,
           ...(normalizeText(scope) === 'ESTRUTURA' ? {} : estimateLayersFromTotal(total))
         };
       });
@@ -993,7 +1010,7 @@ async function applyContagemToConsulta() {
     .map((row) => ({
       area: normalizeAreaCode(row.posicao),
       sku: Number(row.sku),
-      tipo: inferTipoContagem(row.posicao, row.sku),
+      tipo: ['PL2', 'PBR'].includes(normalizeText(row.tipoPlt)) ? normalizeText(row.tipoPlt) : inferTipoContagem(row.posicao, row.sku),
       paletes: Number(row.paletes)
     })));
 
