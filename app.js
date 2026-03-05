@@ -116,10 +116,17 @@ const manualOcupados = new Set([
 ]);
 
 const capacidadeGalpoes = {
-  principal: 3417,
+  principal: 2520,
   tissue: 1728,
   lonil: 1112,
   ttd: 0
+};
+
+const ocupacaoRules = {
+  larguraPl2: 6,
+  profundidade: { A: 5, BD: 5, BE: 4, C: 6 },
+  posicoesPorRua: 22,
+  interditados: { A: 1, BD: 1, BE: 1, C: 1 }
 };
 
 const g1Modelo = [
@@ -490,7 +497,7 @@ function getOccupiedByWarehouse() {
       fromEstoque.lonil += pal;
     } else if (/^TTD\d+[ED]?$/.test(area)) {
       fromEstoque.ttd += pal;
-    } else if (/^(A|B|C|D|BE|BD)\d+[ED]?$/.test(area)) {
+    } else if (/^(A|B|C)\d+[ED]?$/.test(area)) {
       fromEstoque.principal += pal;
     }
   });
@@ -503,7 +510,7 @@ function getOccupiedByWarehouse() {
     entries.forEach((entry) => {
       const result = computeContagem(posicao, entry, scope);
       if (result.paletes <= 0) return;
-      if (['A', 'B', 'C', 'ESTRUTURA'].includes(scope)) fromContagem.principal += Number(result.paletes || 0);
+      if (['A', 'B', 'C'].includes(scope)) fromContagem.principal += Number(result.paletes || 0);
       else if (scope === 'TISSUE') fromContagem.tissue += Number(result.paletes || 0);
       else if (scope === 'LONIL') fromContagem.lonil += Number(result.paletes || 0);
       else if (scope === 'TTD') fromContagem.ttd += Number(result.paletes || 0);
@@ -519,6 +526,35 @@ function getOccupiedByWarehouse() {
     ttd: useContagem ? fromContagem.ttd : fromEstoque.ttd,
     source: useContagem ? 'contagem' : 'sistema'
   };
+}
+
+function getImportTargets() {
+  const checked = new Set(
+    Array.from(document.querySelectorAll('input[data-import-target]:checked'))
+      .map((node) => normalizeText(node.dataset.importTarget))
+  );
+  return checked.size ? checked : new Set(['A', 'BD', 'BE', 'C', 'ESTRUTURA', 'TISSUE_D', 'TISSUE_E', 'LONIL_D', 'LONIL_E', 'TTD_D', 'TTD_E']);
+}
+
+function getTargetFromArea(area) {
+  const p = normalizeAreaCode(area);
+  if (/^A\d+$/.test(p)) return 'A';
+  if (/^B\d+D$/.test(p)) return 'BD';
+  if (/^B\d+E$/.test(p)) return 'BE';
+  if (/^C\d+$/.test(p)) return 'C';
+  if (p.startsWith('TISSUE')) return p.endsWith('E') ? 'TISSUE_E' : 'TISSUE_D';
+  if (p.startsWith('LONIL')) return p.endsWith('E') ? 'LONIL_E' : 'LONIL_D';
+  if (p.startsWith('TTD')) return p.endsWith('E') ? 'TTD_E' : 'TTD_D';
+  if (/^(R\d+\.\d+|CHAOESTRUTURA)$/.test(p)) return 'ESTRUTURA';
+  return '';
+}
+
+function getPrincipalCapacidadePelasRegras() {
+  const calc = (bloco) => {
+    const posicoesUteis = Math.max(0, ocupacaoRules.posicoesPorRua - Number(ocupacaoRules.interditados[bloco] || 0));
+    return posicoesUteis * ocupacaoRules.larguraPl2 * Number(ocupacaoRules.profundidade[bloco] || 0);
+  };
+  return calc('A') + calc('BD') + calc('BE') + calc('C');
 }
 
 function getPaletesResumoPorSetor() {
@@ -565,8 +601,10 @@ function renderOcupacao() {
 
   const { principal, tissue, lonil, ttd, source } = getOccupiedByWarehouse();
 
+  const capacidadePrincipal = getPrincipalCapacidadePelasRegras();
+  capacidadeGalpoes.principal = capacidadePrincipal;
   const rows = [
-    ['Principal (A+B+C+Estruturas)', capacidadeGalpoes.principal, principal],
+    ['Principal (A+B+C)', capacidadePrincipal, principal],
     ['Tissue', capacidadeGalpoes.tissue, tissue],
     ['Lonil', capacidadeGalpoes.lonil, lonil],
     ['TTD', capacidadeGalpoes.ttd, ttd]
@@ -582,8 +620,8 @@ function renderOcupacao() {
   });
 
   setStatus(el.ocupacaoStatus, source === 'contagem'
-    ? 'Ocupação atualizada com base na Contagem manual (prioridade sobre sistema).'
-    : 'Ocupação atualizada com dados do sistema.', 'success');
+    ? `Ocupação atualizada pela Contagem. Regras aplicadas no principal: largura 6 PL2, profundidade A=5/Bd=5/Be=4/C=6 e interditados A13/B13/C13.`
+    : `Ocupação atualizada com dados do sistema. Regras de capacidade do principal: largura 6 PL2, profundidade A=5/Bd=5/Be=4/C=6 e interditados A13/B13/C13.`, 'success');
 }
 
 function calcularLinhaG1(item) {
@@ -897,17 +935,19 @@ async function importContagemFromPlanilha() {
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
     const scope = el.contagemScope?.value;
-    const side = el.contagemSide?.value || 'ALL';
-    const positions = new Set(getContagemPositions(scope, side));
-    const scopeNorm = normalizeText(scope);
+    const selectedTargets = getImportTargets();
+    const positionsAll = new Set(['A', 'B', 'C', 'ESTRUTURA', 'TISSUE', 'LONIL', 'TTD']
+      .flatMap((s) => getContagemPositions(s, 'ALL')));
     const normalizeHeader = (key) => String(key || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
-    const isScopeCompatible = (deposito) => {
+    const parseDepositoScope = (deposito) => {
       const dep = normalizeText(deposito);
-      if (!dep) return true;
-      if (scopeNorm === 'ESTRUTURA') return dep.includes('ESTRUT');
-      if (['TISSUE', 'TTD', 'LONIL'].includes(scopeNorm)) return dep.includes(scopeNorm);
-      if (['A', 'B', 'C'].includes(scopeNorm)) return dep.includes('PRINCIPAL');
-      return true;
+      if (!dep) return '';
+      if (dep.includes('ESTRUT')) return 'ESTRUTURA';
+      if (dep.includes('TISSUE')) return 'TISSUE';
+      if (dep.includes('LONIL')) return 'LONIL';
+      if (dep.includes('TTD')) return 'TTD';
+      if (dep.includes('PRINCIPAL')) return 'PRINCIPAL';
+      return '';
     };
 
     const planRows = rawRows
@@ -925,40 +965,52 @@ async function importContagemFromPlanilha() {
         };
       })
       .filter((row) => Number.isFinite(row.sku) && row.paletes > 0)
-      .filter((row) => isScopeCompatible(row.deposito));
+      .map((row) => ({ ...row, depositoScope: parseDepositoScope(row.deposito) }));
 
     const autoIndex = {};
     const validRows = planRows
       .map((row) => {
         let area = normalizeAreaCode(row.area);
-        
+        let guessScope = row.depositoScope;
+        if (!guessScope && /^A\d+/.test(area)) guessScope = 'A';
+        if (!guessScope && /^B\d+[DE]?$/.test(area)) guessScope = 'B';
+        if (!guessScope && /^C\d+/.test(area)) guessScope = 'C';
+        if (!guessScope && area.startsWith('TISSUE')) guessScope = 'TISSUE';
+        if (!guessScope && area.startsWith('LONIL')) guessScope = 'LONIL';
+        if (!guessScope && area.startsWith('TTD')) guessScope = 'TTD';
+        if (!guessScope && /^(R\d+\.\d+|CHAOESTRUTURA)$/.test(area)) guessScope = 'ESTRUTURA';
 
-        if (!area && ['TISSUE', 'TTD', 'LONIL'].includes(scopeNorm)) {
+        if (!area && ['TISSUE', 'TTD', 'LONIL'].includes(guessScope)) {
           const sideFromQuadrante = row.quadrante.includes('DIREIT') ? 'D' : (row.quadrante.includes('ESQUERD') ? 'E' : '');
           const preferredSide = row.lado === 'DIREITO' ? 'D'
             : row.lado === 'ESQUERDO' ? 'E'
-              : (['D', 'E'].includes(row.lado) ? row.lado : (sideFromQuadrante || (side === 'ALL' ? 'D' : side)));
-          const key = `${scopeNorm}_${preferredSide}`;
+              : (['D', 'E'].includes(row.lado) ? row.lado : (sideFromQuadrante || 'D'));
+          const key = `${guessScope}_${preferredSide}`;
           autoIndex[key] = (autoIndex[key] || 0) + 1;
-          area = `${scopeNorm}${String(autoIndex[key]).padStart(2, '0')}${preferredSide}`;
+          area = `${guessScope}${String(autoIndex[key]).padStart(2, '0')}${preferredSide}`;
         }
 
-        if (!area && ['A', 'B', 'C'].includes(scopeNorm)) return null;
-        if (scopeNorm === 'A' && /^\d+$/.test(area)) area = `A${String(Number(area)).padStart(2, '0')}`;
-        if (scopeNorm === 'C' && /^\d+$/.test(area)) area = `C${String(Number(area)).padStart(2, '0')}`;
-        if (scopeNorm === 'B' && /^B?\d+$/.test(area)) {
+        if (!area && ['A', 'B', 'C', 'PRINCIPAL'].includes(guessScope)) return null;
+        if ((guessScope === 'A' || /^A/.test(area)) && /^\d+$/.test(area)) area = `A${String(Number(area)).padStart(2, '0')}`;
+        if ((guessScope === 'C' || /^C/.test(area)) && /^\d+$/.test(area)) area = `C${String(Number(area)).padStart(2, '0')}`;
+        if ((guessScope === 'B' || guessScope === 'PRINCIPAL') && /^B?\d+$/.test(area)) {
           const num = String(Number(area.replace(/^B/, ''))).padStart(2, '0');
-          const bSide = side === 'ALL' ? 'D' : side;
+          const bSide = row.quadrante.includes('ESQUERD') || row.lado === 'E' || row.lado === 'ESQUERDO' ? 'E' : 'D';
           area = `B${num}${bSide}`;
         }
 
+        if ((guessScope === 'PRINCIPAL' || guessScope === 'B') && /^B\d+[DE]$/.test(area)) guessScope = 'B';
+        if ((guessScope === 'PRINCIPAL' || !guessScope) && /^A\d+$/.test(area)) guessScope = 'A';
+        if ((guessScope === 'PRINCIPAL' || !guessScope) && /^C\d+$/.test(area)) guessScope = 'C';
+
         return { ...row, area, tipoPlt: ['PL2', 'PBR'].includes(row.tipoPlt) ? row.tipoPlt : '' };
       })
-      .filter((row) => row && positions.has(normalizeAreaCode(row.area)))
+      .filter((row) => row && positionsAll.has(normalizeAreaCode(row.area)))
+      .filter((row) => selectedTargets.has(getTargetFromArea(row.area)))
       .sort((a, b) => normalizeAreaCode(a.area).localeCompare(normalizeAreaCode(b.area), 'pt-BR', { numeric: true }));
 
     if (!validRows.length) {
-      setStatus(el.contagemStatus, 'Nenhuma linha bateu com a área/lado. Planilha aceita: sku, deposito, quadrante, qtd plt e tipo plt (ou aliases area/posição/endereço + paletes/quantidade).', 'error');
+      setStatus(el.contagemStatus, 'Nenhuma linha bateu com os checkboxes marcados. Verifique deposito/quadrante e os blocos selecionados para importação.', 'error');
       return;
     }
 
@@ -985,7 +1037,7 @@ async function importContagemFromPlanilha() {
     });
 
     renderContagemTable();
-    setStatus(el.contagemStatus, `Planilha carregada. ${validRows.length} linha(s) aplicadas para conferência manual. Marque "Confirmar" nas linhas corretas e clique em "Atualizar consulta".`, 'success');
+    setStatus(el.contagemStatus, `Planilha carregada em todas as áreas marcadas. ${validRows.length} linha(s) aplicadas para conferência manual. Marque "Confirmar" nas linhas corretas e clique em "Atualizar consulta".`, 'success');
   } catch (error) {
     setStatus(el.contagemStatus, `Erro ao ler planilha da contagem: ${error.message}`, 'error');
   }

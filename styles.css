@@ -364,7 +364,16 @@ th, td {
 
 
 #contagemTable .contagem-sku-input {
-  min-width: 180px;
+  min-width: 240px;
+}
+
+.contagem-import-targets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
 }
 
 #contagemTable .contagem-collapsed {

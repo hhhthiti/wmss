@@ -280,7 +280,7 @@ A01	20104409	PA	30	"></textarea>
       <section id="contagem" class="tab-content">
         <div class="card">
           <h2>Contagem por rua/estrutura</h2>
-          <p class="helper-text">Selecione a área. Use o botão <strong>+</strong> para adicionar mais de 1 SKU na mesma posição. Para importar planilha, o formato recomendado é: <strong>sku</strong>, <strong>deposito</strong> (principal/estruturas/lonil/tissue/ttd), <strong>quadrante</strong> (A01, B02D, chão direito/esquerdo), <strong>qtd plt</strong> e <strong>tipo plt</strong> (PL2/PBR).</p>
+          <p class="helper-text">Selecione a área. Use o botão <strong>+</strong> para adicionar mais de 1 SKU na mesma posição. Para importar planilha, o formato recomendado é: <strong>sku</strong>, <strong>deposito</strong> (principal/estruturas/lonil/tissue/ttd), <strong>quadrante</strong> (A01, B02D, chão direito/esquerdo), <strong>qtd plt</strong> e <strong>tipo plt</strong> (PL2/PBR). A importação respeita apenas os checkboxes de blocos marcados abaixo.</p>
           <form id="contagemForm" class="grid two-col">
             <label>Área de contagem
               <select id="contagemScope">
@@ -303,6 +303,20 @@ A01	20104409	PA	30	"></textarea>
             <label>Importar planilha para pré-preenchimento
               <input id="contagemFile" type="file" accept=".xlsx,.xls,.csv" />
             </label>
+            <fieldset class="contagem-import-targets">
+              <legend>Importar somente para os blocos marcados</legend>
+              <label><input type="checkbox" data-import-target="A" checked /> A</label>
+              <label><input type="checkbox" data-import-target="BD" checked /> B direito</label>
+              <label><input type="checkbox" data-import-target="BE" checked /> B esquerdo</label>
+              <label><input type="checkbox" data-import-target="C" checked /> C</label>
+              <label><input type="checkbox" data-import-target="ESTRUTURA" checked /> Estrutura</label>
+              <label><input type="checkbox" data-import-target="TISSUE_D" checked /> Tissue direito</label>
+              <label><input type="checkbox" data-import-target="TISSUE_E" checked /> Tissue esquerdo</label>
+              <label><input type="checkbox" data-import-target="LONIL_D" checked /> Lonil direito</label>
+              <label><input type="checkbox" data-import-target="LONIL_E" checked /> Lonil esquerdo</label>
+              <label><input type="checkbox" data-import-target="TTD_D" checked /> TTD direito</label>
+              <label><input type="checkbox" data-import-target="TTD_E" checked /> TTD esquerdo</label>
+            </fieldset>
             <div class="actions">
               <button id="contagemLoadBtn" type="button" class="secondary">Carregar posições</button>
               <button id="contagemImportBtn" type="button" class="secondary">Preencher pela planilha</button>
