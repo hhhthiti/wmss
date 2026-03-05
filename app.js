@@ -69,7 +69,10 @@ const el = {
   contagemSideLabel: document.getElementById('contagemSideLabel'),
   contagemSide: document.getElementById('contagemSide'),
   contagemLoadBtn: document.getElementById('contagemLoadBtn'),
+  contagemImportBtn: document.getElementById('contagemImportBtn'),
   contagemEstimateBtn: document.getElementById('contagemEstimateBtn'),
+  contagemApplyBtn: document.getElementById('contagemApplyBtn'),
+  contagemFile: document.getElementById('contagemFile'),
   contagemExportBtn: document.getElementById('contagemExportBtn'),
   contagemStatus: document.getElementById('contagemStatus'),
   contagemBody: document.querySelector('#contagemTable tbody'),
@@ -735,7 +738,8 @@ function getContagemEntries(posicao) {
     fileiraIncompleta: Boolean(item.fileiraIncompleta),
     paletesAjuste: Number(item.paletesAjuste || 0),
     fardosFaltando: Number(item.fardosFaltando || 0),
-    totalManual: Number(item.totalManual || 0)
+    totalManual: Number(item.totalManual || 0),
+    confirmada: Boolean(item.confirmada)
   }));
 }
 
@@ -752,7 +756,8 @@ function createEmptyContagemEntry() {
     fileiraIncompleta: false,
     paletesAjuste: 0,
     fardosFaltando: 0,
-    totalManual: 0
+    totalManual: 0,
+    confirmada: false
   };
 }
 
@@ -880,6 +885,104 @@ function estimateContagemFromTurno(scope, side = 'ALL') {
   return estimadas;
 }
 
+async function importContagemFromPlanilha() {
+  const file = el.contagemFile?.files?.[0];
+  if (!file) return setStatus(el.contagemStatus, 'Selecione a planilha para pré-preencher a contagem.', 'error');
+
+  try {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' }).map(mapImportRow);
+    const scope = el.contagemScope?.value;
+    const side = el.contagemSide?.value || 'ALL';
+    const positions = new Set(getContagemPositions(scope, side));
+    const validRows = rows
+      .filter((row) => positions.has(normalizeAreaCode(row.area)))
+      .filter((row) => Number.isFinite(Number(row.sku)) && Number(row.paletes) > 0)
+      .sort((a, b) => normalizeAreaCode(a.area).localeCompare(normalizeAreaCode(b.area), 'pt-BR', { numeric: true }));
+
+    if (!validRows.length) {
+      setStatus(el.contagemStatus, 'Nenhuma linha da planilha bate com a área/lado selecionado.', 'error');
+      return;
+    }
+
+    const grouped = validRows.reduce((acc, row) => {
+      const area = normalizeAreaCode(row.area);
+      if (!acc[area]) acc[area] = [];
+      acc[area].push(row);
+      return acc;
+    }, {});
+
+    Object.entries(grouped).forEach(([area, group]) => {
+      const entries = group.map((row) => {
+        const total = Number(row.paletes || 0);
+        return {
+          ...createEmptyContagemEntry(),
+          sku: String(row.sku),
+          totalManual: total,
+          confirmada: false,
+          ...(normalizeText(scope) === 'ESTRUTURA' ? {} : estimateLayersFromTotal(total))
+        };
+      });
+      saveContagemEntries(area, entries);
+    });
+
+    renderContagemTable();
+    setStatus(el.contagemStatus, `Planilha carregada. ${validRows.length} linha(s) aplicadas para conferência manual. Marque "Confirmar" nas linhas corretas e clique em "Atualizar consulta".`, 'success');
+  } catch (error) {
+    setStatus(el.contagemStatus, `Erro ao ler planilha da contagem: ${error.message}`, 'error');
+  }
+}
+
+function inferTipoContagem(posicao, sku) {
+  const samePos = cache.estoque.find((row) => normalizeAreaCode(row.area) === normalizeAreaCode(posicao) && Number(row.sku) === Number(sku));
+  if (samePos?.tipo) return normalizeText(samePos.tipo);
+  const sameSku = cache.estoque.find((row) => Number(row.sku) === Number(sku));
+  if (sameSku?.tipo) return normalizeText(sameSku.tipo);
+  return 'PL2';
+}
+
+async function applyContagemToConsulta() {
+  if (!supabaseClient) return setStatus(el.contagemStatus, 'Banco não conectado para atualizar consulta.', 'error');
+  const scope = el.contagemScope?.value;
+  const side = el.contagemSide?.value || 'ALL';
+  const positions = getContagemPositions(scope, side);
+  const confirmedRows = positions.flatMap((posicao) => getContagemEntries(posicao)
+    .map((entry) => computeContagem(posicao, entry, scope))
+    .filter((row) => row.confirmada && normalizeText(row.sku) && row.paletes > 0)
+    .map((row) => ({
+      area: normalizeAreaCode(row.posicao),
+      sku: Number(row.sku),
+      tipo: inferTipoContagem(row.posicao, row.sku),
+      paletes: Number(row.paletes)
+    })));
+
+  if (!confirmedRows.length) {
+    return setStatus(el.contagemStatus, 'Nenhuma linha confirmada para atualizar a consulta.', 'error');
+  }
+
+  const targetAreas = [...new Set(confirmedRows.map((row) => row.area))];
+  try {
+    const { error: deleteError } = await supabaseClient
+      .from('estoque_area')
+      .delete()
+      .in('area', targetAreas);
+    if (deleteError) throw deleteError;
+
+    const { error: insertError } = await supabaseClient
+      .from('estoque_area')
+      .upsert(confirmedRows);
+    if (insertError) throw insertError;
+
+    await loadAll();
+    setStatus(el.contagemStatus, `Consulta atualizada com ${confirmedRows.length} linha(s) confirmada(s) em ${targetAreas.length} posição(ões).`, 'success');
+    showFeedback('Contagem confirmada aplicada na consulta com sucesso.');
+  } catch (error) {
+    setStatus(el.contagemStatus, `Erro ao atualizar consulta pela contagem: ${error.message}`, 'error');
+  }
+}
+
 
 function renderContagemResumo(rows) {
   if (!el.contagemResumoBody) return;
@@ -958,6 +1061,7 @@ function renderContagemTable() {
         <td>${plusOrRemove}</td>
         <td>${posLabel}</td>
         <td><input class="contagem-sku-input" data-posicao="${posicao}" data-entry-idx="${idx}" data-field="sku" value="${entry.sku || ''}" /></td>
+        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="confirmada" type="checkbox" ${entry.confirmada ? 'checked' : ''} /></td>
         <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="profundidade1" type="number" min="0" value="${entry.profundidade1 || ''}" />`}</td>
         <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="largura1" type="number" min="0" value="${entry.largura1 || ''}" />`}</td>
         <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="segundaCamada" type="checkbox" ${entry.segundaCamada ? 'checked' : ''} />`}</td>
@@ -1087,6 +1191,7 @@ function setupContagem() {
     renderContagemTable();
     setStatus(el.contagemStatus, `Posições carregadas para preenchimento. SKU(s) sugeridos em ${preenchidas} posição(ões). Estimativa da conferência aplicada em ${estimadas} linha(s).`, 'success');
   });
+  el.contagemImportBtn?.addEventListener('click', importContagemFromPlanilha);
   el.contagemEstimateBtn?.addEventListener('click', () => {
     const scope = el.contagemScope?.value;
     const side = el.contagemSide?.value || 'ALL';
@@ -1096,6 +1201,7 @@ function setupContagem() {
       ? `Estimativa da última conferência aplicada em ${estimadas} linha(s). Campos continuam editáveis, inclusive o total.`
       : 'Não há dados da última conferência para estimar (suba a planilha na aba Conferência de turno).', estimadas ? 'success' : 'error');
   });
+  el.contagemApplyBtn?.addEventListener('click', applyContagemToConsulta);
   el.contagemForm?.addEventListener('submit', (event) => {
     event.preventDefault();
     renderContagemTable();

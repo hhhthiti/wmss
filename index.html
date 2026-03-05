@@ -300,10 +300,15 @@ A01	20104409	PA	30	"></textarea>
                 <option value="E">Somente esquerdo</option>
               </select>
             </label>
+            <label>Importar planilha para pré-preenchimento
+              <input id="contagemFile" type="file" accept=".xlsx,.xls,.csv" />
+            </label>
             <div class="actions">
               <button id="contagemLoadBtn" type="button" class="secondary">Carregar posições</button>
+              <button id="contagemImportBtn" type="button" class="secondary">Preencher pela planilha</button>
               <button id="contagemEstimateBtn" type="button" class="secondary">Estimar pela conferência</button>
               <button type="submit">Calcular</button>
+              <button id="contagemApplyBtn" type="button">Atualizar consulta (confirmados)</button>
               <button id="contagemExportBtn" type="button" class="secondary">Exportar Excel (todas as áreas)</button>
             </div>
           </form>
@@ -313,6 +318,7 @@ A01	20104409	PA	30	"></textarea>
               <thead>
                 <tr>
                   <th>+</th><th>Posição</th><th>SKU</th>
+                  <th>Confirmar?</th>
                   <th>Prof. 1ª</th><th>Larg. 1ª</th>
                   <th>2ª camada?</th><th>Prof. 2ª</th><th>Larg. 2ª</th>
                   <th>3ª camada?</th><th>Paletes 3ª</th>
