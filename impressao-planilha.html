@@ -78,10 +78,10 @@
           : (ladoRaw.includes('DIREIT') || ladoRaw === 'D' ? 'D' : '');
         let endereco = String(row.endereco ?? row.endereço ?? row.area ?? row['área'] ?? row.quadrante ?? '').trim();
         if ((!endereco || ['D', 'E', 'DIREITO', 'ESQUERDO'].includes(endereco.toUpperCase())) && deposito && lado) {
-          const depNorm = deposito.includes('LONIL') ? 'LONIL'
-            : (deposito.includes('TISSUE') ? 'TISSUE'
-              : (deposito.includes('TTD') || deposito.includes('TDD') ? 'TTD' : ''));
-          if (depNorm) endereco = `${depNorm} ${lado === 'D' ? '→ DIREITA' : '← ESQUERDA'}`;
+          const depNorm = deposito.includes('LONIL') ? 'lonil'
+            : (deposito.includes('TISSUE') ? 'tissue'
+              : (deposito.includes('TTD') || deposito.includes('TDD') ? 'ttd' : ''));
+          if (depNorm) endereco = `${depNorm}.${lado.toLowerCase()}`;
         }
         const quantidade = Number(row.quantidade ?? row.paletes ?? row.qtd ?? row.qtd_plt ?? row['qtd plt']);
         if (!sku || !endereco || !Number.isFinite(quantidade) || quantidade <= 0) return null;
