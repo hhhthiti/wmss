@@ -29,7 +29,7 @@
       <div class="card">
         <h1>Impressão compacta de planilha</h1>
         <p class="muted">
-          Página exclusiva por URL para reduzir gasto de folha. Use colunas <code>sku</code>, <code>endereco/área</code> e <code>quantidade/paletes</code>.
+          Página exclusiva por URL para reduzir gasto de folha. Use colunas <code>sku</code> e <code>quantidade/paletes</code>. O endereço pode vir como <code>endereco/área/quadrante</code> ou somente <code>lado</code> (direito/esquerdo) + <code>deposito</code> (lonil/tissue/ttd).
         </p>
         <input id="arquivo" type="file" accept=".xlsx,.xls,.csv" />
         <div class="actions">
@@ -72,7 +72,17 @@
       function obterRegistro(raw) {
         const row = Object.fromEntries(Object.entries(raw).map(([k, v]) => [normalizarChave(k), v]));
         const sku = String(row.sku ?? row.codsku ?? row.cod_sku ?? '').trim();
-        const endereco = String(row.endereco ?? row.endereço ?? row.area ?? row['área'] ?? row.quadrante ?? '').trim();
+        const deposito = String(row.deposito ?? row.setor ?? row.deposito_tipo ?? '').trim().toUpperCase();
+        const ladoRaw = String(row.lado ?? row.endereco ?? row.endereço ?? row.quadrante ?? row.area ?? row['área'] ?? '').trim().toUpperCase();
+        const lado = ladoRaw.includes('ESQUER') || ladoRaw === 'E' ? 'E'
+          : (ladoRaw.includes('DIREIT') || ladoRaw === 'D' ? 'D' : '');
+        let endereco = String(row.endereco ?? row.endereço ?? row.area ?? row['área'] ?? row.quadrante ?? '').trim();
+        if ((!endereco || ['D', 'E', 'DIREITO', 'ESQUERDO'].includes(endereco.toUpperCase())) && deposito && lado) {
+          const depNorm = deposito.includes('LONIL') ? 'LONIL'
+            : (deposito.includes('TISSUE') ? 'TISSUE'
+              : (deposito.includes('TTD') || deposito.includes('TDD') ? 'TTD' : ''));
+          if (depNorm) endereco = `${depNorm} ${lado === 'D' ? '→ DIREITA' : '← ESQUERDA'}`;
+        }
         const quantidade = Number(row.quantidade ?? row.paletes ?? row.qtd ?? row.qtd_plt ?? row['qtd plt']);
         if (!sku || !endereco || !Number.isFinite(quantidade) || quantidade <= 0) return null;
         return { sku, endereco, quantidade };
