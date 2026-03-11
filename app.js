@@ -80,8 +80,10 @@ const el = {
   contagemLoadBtn: document.getElementById('contagemLoadBtn'),
   contagemImportBtn: document.getElementById('contagemImportBtn'),
   contagemEstimateBtn: document.getElementById('contagemEstimateBtn'),
+  contagemClearChecksBtn: document.getElementById('contagemClearChecksBtn'),
   contagemApplyBtn: document.getElementById('contagemApplyBtn'),
   contagemFile: document.getElementById('contagemFile'),
+  contagemImportResetToggle: document.getElementById('contagemImportResetToggle'),
   contagemExportBtn: document.getElementById('contagemExportBtn'),
   contagemStatus: document.getElementById('contagemStatus'),
   contagemBody: document.querySelector('#contagemTable tbody'),
@@ -865,6 +867,7 @@ function getContagemEntries(posicao) {
     fardosFaltando: Number(item.fardosFaltando || 0),
     totalManual: Number(item.totalManual || 0),
     usarTotalManual: Boolean(item.usarTotalManual),
+    blocadoPresente: typeof item.blocadoPresente === 'boolean' ? item.blocadoPresente : true,
     confirmada: Boolean(item.confirmada),
     tipoPlt: normalizeText(item.tipoPlt)
   }));
@@ -883,6 +886,7 @@ function createEmptyContagemEntry() {
     fardosFaltando: 0,
     totalManual: 0,
     usarTotalManual: false,
+    blocadoPresente: true,
     confirmada: false,
     tipoPlt: ''
   };
@@ -913,6 +917,15 @@ function removeContagemEntry(posicao, idx) {
 function computeContagem(posicao, entry, scope = el.contagemScope?.value) {
   const st = { ...createEmptyContagemEntry(), ...(entry || {}) };
   const isEstrutura = normalizeText(scope) === 'ESTRUTURA';
+  const ativo = st.blocadoPresente !== false;
+  if (!ativo) {
+    const paletes = st.usarTotalManual && Number(st.totalManual) > 0 ? Number(st.totalManual) : 0;
+    const fpp = getFardosPorPalete(st.sku);
+    const faltando = Math.max(0, st.fardosFaltando || 0);
+    const fardosBrutos = fpp ? paletes * fpp : null;
+    const fardos = Number.isFinite(fardosBrutos) ? Math.max(0, fardosBrutos - faltando) : null;
+    return { ...st, posicao, paletes, paletesCalculados: 0, fardos };
+  }
   const basePrimeira = Math.max(0, st.profundidade1 * st.largura1);
   const baseSegunda = st.segundaCamada ? Math.max(0, st.profundidade2 * st.largura2) : 0;
   const base = isEstrutura ? (normalizeText(st.sku) ? 1 : 0) : basePrimeira + baseSegunda;
@@ -1099,6 +1112,11 @@ async function importContagemFromPlanilha() {
       return;
     }
 
+    if (el.contagemImportResetToggle?.checked) {
+      contagemMap = {};
+      storageSet('wmss_contagem_map', JSON.stringify(contagemMap));
+    }
+
     const grouped = validRows.reduce((acc, row) => {
       const area = normalizeAreaCode(row.area);
       if (!acc[area]) acc[area] = [];
@@ -1256,13 +1274,14 @@ function renderContagemTable() {
         <td>${posLabel}</td>
         <td><input class="contagem-sku-input" data-posicao="${posicao}" data-entry-idx="${idx}" data-field="sku" value="${entry.sku || ''}" /></td>
         <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="confirmada" type="checkbox" ${entry.confirmada ? 'checked' : ''} /></td>
-        <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="profundidade1" type="number" min="0" value="${entry.profundidade1 || ''}" />`}</td>
-        <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="largura1" type="number" min="0" value="${entry.largura1 || ''}" />`}</td>
-        <td>${isEstrutura ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="segundaCamada" type="checkbox" ${entry.segundaCamada ? 'checked' : ''} />`}</td>
-        <td>${isEstrutura ? '<span>-</span>' : (entry.segundaCamada ? `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="profundidade2" type="number" min="0" value="${entry.profundidade2 || ''}" />` : '<span class="contagem-collapsed">marque 2ª camada</span>')}</td>
-        <td>${isEstrutura ? '<span>-</span>' : (entry.segundaCamada ? `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="largura2" type="number" min="0" value="${entry.largura2 || ''}" />` : '<span class="contagem-collapsed">marque 2ª camada</span>')}</td>
-        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="terceiraCamada" type="checkbox" ${entry.terceiraCamada ? 'checked' : ''} /></td>
-        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="paletesTerceira" type="number" min="0" value="${entry.paletesTerceira || ''}" ${entry.terceiraCamada ? '' : 'disabled'} /></td>
+        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="blocadoPresente" type="checkbox" ${entry.blocadoPresente ? 'checked' : ''} /></td>
+        <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="profundidade1" type="number" min="0" value="${entry.profundidade1 || ''}" />`}</td>
+        <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="largura1" type="number" min="0" value="${entry.largura1 || ''}" />`}</td>
+        <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="segundaCamada" type="checkbox" ${entry.segundaCamada ? 'checked' : ''} />`}</td>
+        <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : (entry.segundaCamada ? `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="profundidade2" type="number" min="0" value="${entry.profundidade2 || ''}" />` : '<span class="contagem-collapsed">marque 2ª camada</span>')}</td>
+        <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : (entry.segundaCamada ? `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="largura2" type="number" min="0" value="${entry.largura2 || ''}" />` : '<span class="contagem-collapsed">marque 2ª camada</span>')}</td>
+        <td>${!entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="terceiraCamada" type="checkbox" ${entry.terceiraCamada ? 'checked' : ''} />`}</td>
+        <td>${!entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="paletesTerceira" type="number" min="0" value="${entry.paletesTerceira || ''}" ${entry.terceiraCamada ? '' : 'disabled'} />`}</td>
         <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="fardosFaltando" type="number" min="0" value="${entry.fardosFaltando || ''}" /></td>
         <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="usarTotalManual" type="checkbox" ${entry.usarTotalManual ? 'checked' : ''} /></td>
         <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="totalManual" type="number" min="0" value="${entry.totalManual || ''}" ${entry.usarTotalManual ? '' : 'disabled'} /></td>
@@ -1304,6 +1323,15 @@ function renderContagemTable() {
       if (field === 'segundaCamada' && !event.target.checked) {
         current.profundidade2 = 0;
         current.largura2 = 0;
+      }
+      if (field === 'blocadoPresente' && !event.target.checked) {
+        current.profundidade1 = 0;
+        current.largura1 = 0;
+        current.segundaCamada = false;
+        current.profundidade2 = 0;
+        current.largura2 = 0;
+        current.terceiraCamada = false;
+        current.paletesTerceira = 0;
       }
       if (field === 'terceiraCamada' && !event.target.checked) current.paletesTerceira = 0;
       if (field === 'usarTotalManual' && !event.target.checked) current.totalManual = 0;
@@ -1385,6 +1413,21 @@ function setupContagem() {
     setStatus(el.contagemStatus, `Posições carregadas para preenchimento. SKU(s) sugeridos em ${preenchidas} posição(ões). Estimativa da conferência aplicada em ${estimadas} linha(s).`, 'success');
   });
   el.contagemImportBtn?.addEventListener('click', importContagemFromPlanilha);
+  el.contagemClearChecksBtn?.addEventListener('click', () => {
+    Object.keys(contagemMap || {}).forEach((posicao) => {
+      const entries = getContagemEntries(posicao).map((entry) => ({
+        ...entry,
+        confirmada: false,
+        blocadoPresente: true,
+        usarTotalManual: false,
+        segundaCamada: false,
+        terceiraCamada: false
+      }));
+      saveContagemEntries(posicao, entries);
+    });
+    renderContagemTable();
+    setStatus(el.contagemStatus, 'Checkboxes limpos para iniciar novo turno.', 'success');
+  });
   el.contagemEstimateBtn?.addEventListener('click', () => {
     const scope = el.contagemScope?.value;
     const side = el.contagemSide?.value || 'ALL';
