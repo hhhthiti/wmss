@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WMSS • Impressão compacta de planilha</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; background: #f3f6fb; color: #1d2733; }
+      .wrap { max-width: 980px; margin: 0 auto; padding: 1rem; }
+      .card { background: #fff; border-radius: 10px; padding: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1rem; }
+      h1 { margin: 0 0 .5rem; }
+      .muted { color: #526173; font-size: .95rem; }
+      .actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .75rem; }
+      button { border: 0; border-radius: 8px; background: #1f4d8f; color: #fff; padding: .65rem .9rem; cursor: pointer; }
+      button.secondary { background: #5f6f82; }
+      button:disabled { opacity: .5; cursor: not-allowed; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border-bottom: 1px solid #e4e9f0; text-align: left; padding: .5rem; }
+      .status { margin-top: .5rem; font-weight: 600; }
+      .error { color: #b00020; }
+      .success { color: #117a3a; }
+      code { background: #eef3fa; padding: 0 .25rem; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>Impressão compacta de planilha</h1>
+        <p class="muted">
+          Página exclusiva por URL para reduzir gasto de folha. Use colunas <code>sku</code> e <code>quantidade/paletes</code>. O endereço pode vir como <code>endereco/área/quadrante</code> ou somente <code>lado</code> (direito/esquerdo) + <code>deposito</code> (lonil/tissue/ttd).
+        </p>
+        <input id="arquivo" type="file" accept=".xlsx,.xls,.csv" />
+        <div class="actions">
+          <button id="gerarPdfBtn" disabled>Gerar PDF otimizado (A4)</button>
+          <button id="limparBtn" class="secondary">Limpar</button>
+        </div>
+        <div id="status" class="status"></div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0">Prévia dos dados extraídos</h2>
+        <div class="muted" id="resumo">Nenhum arquivo carregado.</div>
+        <table>
+          <thead>
+            <tr><th>SKU</th><th>Endereço</th><th>Quantidade</th></tr>
+          </thead>
+          <tbody id="previewBody">
+            <tr><td colspan="3">Sem dados.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <script>
+      const el = {
+        arquivo: document.getElementById('arquivo'),
+        gerarPdfBtn: document.getElementById('gerarPdfBtn'),
+        limparBtn: document.getElementById('limparBtn'),
+        status: document.getElementById('status'),
+        resumo: document.getElementById('resumo'),
+        previewBody: document.getElementById('previewBody')
+      };
+
+      let registros = [];
+
+      function normalizarChave(v) {
+        return String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+      }
+
+      function obterRegistro(raw) {
+        const row = Object.fromEntries(Object.entries(raw).map(([k, v]) => [normalizarChave(k), v]));
+        const sku = String(row.sku ?? row.codsku ?? row.cod_sku ?? '').trim();
+        const deposito = String(row.deposito ?? row.setor ?? row.deposito_tipo ?? '').trim().toUpperCase();
+        const ladoRaw = String(row.lado ?? row.endereco ?? row.endereço ?? row.quadrante ?? row.area ?? row['área'] ?? '').trim().toUpperCase();
+        const lado = ladoRaw.includes('ESQUER') || ladoRaw === 'E' ? 'E'
+          : (ladoRaw.includes('DIREIT') || ladoRaw === 'D' ? 'D' : '');
+        let endereco = String(row.endereco ?? row.endereço ?? row.area ?? row['área'] ?? row.quadrante ?? '').trim();
+        if ((!endereco || ['D', 'E', 'DIREITO', 'ESQUERDO'].includes(endereco.toUpperCase())) && deposito && lado) {
+          const depNorm = deposito.includes('LONIL') ? 'lonil'
+            : (deposito.includes('TISSUE') ? 'tissue'
+              : (deposito.includes('TTD') || deposito.includes('TDD') ? 'ttd' : ''));
+          if (depNorm) endereco = `${depNorm}.${lado.toLowerCase()}`;
+        }
+        const quantidade = Number(row.quantidade ?? row.paletes ?? row.qtd ?? row.qtd_plt ?? row['qtd plt']);
+        if (!sku || !endereco || !Number.isFinite(quantidade) || quantidade <= 0) return null;
+        return { sku, endereco, quantidade };
+      }
+
+      function setStatus(msg, type = '') {
+        el.status.textContent = msg;
+        el.status.className = `status ${type}`.trim();
+      }
+
+      function renderPreview() {
+        el.previewBody.innerHTML = '';
+        if (!registros.length) {
+          el.previewBody.innerHTML = '<tr><td colspan="3">Sem dados.</td></tr>';
+          el.resumo.textContent = 'Nenhum arquivo carregado.';
+          el.gerarPdfBtn.disabled = true;
+          return;
+        }
+
+        registros.slice(0, 40).forEach((r) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${r.sku}</td><td>${r.endereco}</td><td>${r.quantidade}</td>`;
+          el.previewBody.appendChild(tr);
+        });
+        if (registros.length > 40) {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td colspan="3">... mais ${registros.length - 40} linha(s)</td>`;
+          el.previewBody.appendChild(tr);
+        }
+        el.resumo.textContent = `${registros.length} linha(s) válidas extraídas.`;
+        el.gerarPdfBtn.disabled = false;
+      }
+
+      async function carregarArquivo() {
+        const file = el.arquivo.files?.[0];
+        if (!file) return;
+        try {
+          const buffer = await file.arrayBuffer();
+          const wb = XLSX.read(buffer, { type: 'array' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+          registros = rawRows.map(obterRegistro).filter(Boolean);
+          renderPreview();
+          setStatus(`Arquivo processado: ${file.name}`, 'success');
+        } catch (err) {
+          registros = [];
+          renderPreview();
+          setStatus(`Erro ao processar arquivo: ${err.message}`, 'error');
+        }
+      }
+
+      function gerarPdf() {
+        if (!registros.length || !window.jspdf) return;
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF('portrait', 'mm', 'a4');
+
+        // Grade compacta para aproveitar a folha: 2 colunas de etiquetas por página
+        const marginX = 8;
+        const marginY = 10;
+        const pageW = 210;
+        const pageH = 297;
+        const colGap = 6;
+        const colW = (pageW - marginX * 2 - colGap) / 2;
+        const rowH = 8;
+        const rowsPerCol = Math.floor((pageH - marginY * 2 - 8) / rowH);
+        const labelsPerPage = rowsPerCol * 2;
+
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(11);
+        pdf.text('WMSS • Lista compacta para impressão', marginX, marginY - 2);
+
+        registros.forEach((item, i) => {
+          if (i > 0 && i % labelsPerPage === 0) {
+            pdf.addPage();
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(11);
+            pdf.text('WMSS • Lista compacta para impressão', marginX, marginY - 2);
+          }
+
+          const indexInPage = i % labelsPerPage;
+          const col = indexInPage >= rowsPerCol ? 1 : 0;
+          const row = indexInPage % rowsPerCol;
+          const x = marginX + (col * (colW + colGap));
+          const y = marginY + 4 + (row * rowH);
+
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(9);
+          pdf.text(String(item.sku), x, y);
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(8);
+          pdf.text(`END: ${String(item.endereco).slice(0, 22)}`, x + 30, y);
+          pdf.text(`QTD: ${item.quantidade}`, x + colW - 28, y);
+        });
+
+        pdf.save('wmss_impressao_compacta.pdf');
+        setStatus('PDF gerado com layout compacto para impressão.', 'success');
+      }
+
+      function limpar() {
+        registros = [];
+        el.arquivo.value = '';
+        renderPreview();
+        setStatus('Limpo.', '');
+      }
+
+      el.arquivo.addEventListener('change', carregarArquivo);
+      el.gerarPdfBtn.addEventListener('click', gerarPdf);
+      el.limparBtn.addEventListener('click', limpar);
+    </script>
+  </body>
+</html>
