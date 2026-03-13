@@ -619,6 +619,7 @@ function getOccupiedByWarehouse() {
         if (pos.includes('TISSUE')) fromContagem.tissue += Number(result.paletes || 0);
         else if (pos.includes('TTD')) fromContagem.ttd += Number(result.paletes || 0);
         else if (pos.includes('LONIL')) fromContagem.lonil += Number(result.paletes || 0);
+        else fromContagem.principal += Number(result.paletes || 0);
       }
       fromContagem.linhas += 1;
     });
@@ -787,7 +788,7 @@ function renderMovimentacoes() {
 
 const estruturaLabels = [
   'R1.01-07', 'R2.01-09', 'R3.01-09', 'R3.10-16', 'R4.01-09', 'R4.10-16',
-  'R5.01-09', 'R5.10-16', 'R6.01-10', 'R6.11-16', 'CHAO ESTRUTURA'
+  'R5.01-09', 'R5.10-16', 'R6.01-10', 'R6.11-16', 'R1.08-13', 'R2.10-16', 'TUNEL', 'CHAO ESTRUTURA'
 ];
 
 function expandRangeLabel(label) {
@@ -835,19 +836,25 @@ function getContagemPositions(scope, side = 'ALL') {
   }
   if (s === 'ESTRUTURA') return [...new Set(estruturaLabels.flatMap(expandRangeLabel))];
   if (s === 'CHAO') {
-    if (side === 'D') return ['CHAO_TISSUE_D', 'CHAO_TTD_D', 'CHAO_LONIL_D'];
-    if (side === 'E') return ['CHAO_TISSUE_E', 'CHAO_TTD_E', 'CHAO_LONIL_E'];
-    return ['CHAO_TISSUE_D', 'CHAO_TISSUE_E', 'CHAO_TTD_D', 'CHAO_TTD_E', 'CHAO_LONIL_D', 'CHAO_LONIL_E'];
+    if (side === 'D') return ['CHAO_PRINCIPAL_D', 'CHAO_TISSUE_D', 'CHAO_TTD_D', 'CHAO_LONIL_D'];
+    if (side === 'E') return ['CHAO_PRINCIPAL_E', 'CHAO_TISSUE_E', 'CHAO_TTD_E', 'CHAO_LONIL_E'];
+    return ['CHAO_PRINCIPAL_D', 'CHAO_PRINCIPAL_E', 'CHAO_TISSUE_D', 'CHAO_TISSUE_E', 'CHAO_TTD_D', 'CHAO_TTD_E', 'CHAO_LONIL_D', 'CHAO_LONIL_E'];
   }
   if (['TISSUE', 'TTD', 'LONIL'].includes(s)) {
     const fromDb = cache.estoque
       .map((row) => normalizeAreaCode(row.area))
       .filter((area) => area.startsWith(s));
+    const fromContagem = Object.keys(contagemMap || {})
+      .map((area) => normalizeAreaCode(area))
+      .filter((area) => area.startsWith(s));
     const maxPos = fromDb.reduce((max, area) => {
       const m = area.match(/^(?:TISSUE|TTD|LONIL)(\d+)/);
       return m ? Math.max(max, Number(m[1])) : max;
-    }, 0);
-    const qty = maxPos || 20;
+    }, fromContagem.reduce((max, area) => {
+      const m = area.match(/^(?:TISSUE|TTD|LONIL)(\d+)/);
+      return m ? Math.max(max, Number(m[1])) : max;
+    }, 0));
+    const qty = Math.max(maxPos || 0, 80);
     const out = [];
     for (let i = 1; i <= qty; i += 1) {
       const base = `${s}${String(i).padStart(2, '0')}`;
@@ -1094,18 +1101,18 @@ async function importContagemFromPlanilha() {
         if (!guessScope && /^(R\d+\.\d+|CHAOESTRUTURA)$/.test(area)) guessScope = 'ESTRUTURA';
         if (!guessScope && (row.quadrante.includes('CHAO') || area.startsWith('CHAO'))) guessScope = 'CHAO';
 
-        if (guessScope === 'ESTRUTURA' && !/^(R\d+\.\d+|CHAOESTRUTURA)$/.test(area)) {
+        if (guessScope === 'ESTRUTURA' && !/^(R\d+\.\d+|CHAOESTRUTURA|TUNEL)$/.test(area)) {
           const expanded = expandRangeLabel(row.quadrante || row.area || '');
           if (expanded?.length) area = normalizeAreaCode(expanded[0]);
         }
 
         if (guessScope === 'CHAO' && !area.startsWith('CHAO_')) {
           const sideFromQuadrante = row.quadrante.includes('DIREIT') ? 'D' : (row.quadrante.includes('ESQUERD') ? 'E' : 'D');
-          const dep = row.depositoScope === 'TISSUE' ? 'TISSUE'
-            : (row.depositoScope === 'TTD' ? 'TTD'
-              : (row.depositoScope === 'LONIL' ? 'LONIL'
-                : (row.deposito.includes('TISSUE') || row.deposito.includes('TSUI') ? 'TISSUE'
-                  : (row.deposito.includes('TTD') || row.deposito.includes('TTT') ? 'TTD' : 'LONIL'))));
+          let dep = 'LONIL';
+          if (row.depositoScope === 'PRINCIPAL' || row.deposito.includes('PRINCIPAL')) dep = 'PRINCIPAL';
+          else if (row.depositoScope === 'TISSUE' || row.deposito.includes('TISSUE') || row.deposito.includes('TSUI')) dep = 'TISSUE';
+          else if (row.depositoScope === 'TTD' || row.deposito.includes('TTD') || row.deposito.includes('TTT')) dep = 'TTD';
+          else if (row.depositoScope === 'LONIL' || row.deposito.includes('LONIL')) dep = 'LONIL';
           area = `CHAO_${dep}_${sideFromQuadrante}`;
         }
 
@@ -1134,7 +1141,11 @@ async function importContagemFromPlanilha() {
 
         return { ...row, area, tipoPlt: ['PL2', 'PBR'].includes(row.tipoPlt) ? row.tipoPlt : '' };
       })
-      .filter((row) => row && positionsAll.has(normalizeAreaCode(row.area)))
+      .filter((row) => row && (
+        positionsAll.has(normalizeAreaCode(row.area))
+        || /^(?:TISSUE|TTD|LONIL)\d+[DE]$/.test(normalizeAreaCode(row.area))
+        || /^(?:R\d+\.\d+|CHAOESTRUTURA|TUNEL|CHAO_[A-Z]+_[DE]|CHAO_PRINCIPAL)$/.test(normalizeAreaCode(row.area))
+      ))
       .sort((a, b) => normalizeAreaCode(a.area).localeCompare(normalizeAreaCode(b.area), 'pt-BR', { numeric: true }));
 
     if (!validRows.length) {
