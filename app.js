@@ -578,6 +578,7 @@ function inferContagemScopeFromPosicao(posicao) {
   if (/^A\d+$/.test(p)) return 'A';
   if (/^B\d+[ED]?$/.test(p) || /^BD\d+$/.test(p) || /^BE\d+$/.test(p)) return 'B';
   if (/^C\d+$/.test(p)) return 'C';
+  if (p.startsWith('CHAO_')) return 'CHAO';
   if (/^(R\d+\.\d+|CHAOESTRUTURA)$/.test(p)) return 'ESTRUTURA';
   if (p.startsWith('TISSUE')) return 'TISSUE';
   if (p.startsWith('LONIL')) return 'LONIL';
@@ -613,6 +614,12 @@ function getOccupiedByWarehouse() {
       else if (scope === 'TISSUE') fromContagem.tissue += Number(result.paletes || 0);
       else if (scope === 'LONIL') fromContagem.lonil += Number(result.paletes || 0);
       else if (scope === 'TTD') fromContagem.ttd += Number(result.paletes || 0);
+      else if (scope === 'CHAO') {
+        const pos = normalizeAreaCode(posicao);
+        if (pos.includes('TISSUE')) fromContagem.tissue += Number(result.paletes || 0);
+        else if (pos.includes('TTD')) fromContagem.ttd += Number(result.paletes || 0);
+        else if (pos.includes('LONIL')) fromContagem.lonil += Number(result.paletes || 0);
+      }
       fromContagem.linhas += 1;
     });
   });
@@ -798,7 +805,7 @@ function expandRangeLabel(label) {
 
 function shouldShowContagemSide() {
   const scope = normalizeText(el.contagemScope?.value);
-  return ['B', 'TISSUE', 'TTD', 'LONIL'].includes(scope);
+  return ['B', 'TISSUE', 'TTD', 'LONIL', 'CHAO'].includes(scope);
 }
 
 function updateContagemSideVisibility() {
@@ -827,6 +834,11 @@ function getContagemPositions(scope, side = 'ALL') {
     return b;
   }
   if (s === 'ESTRUTURA') return [...new Set(estruturaLabels.flatMap(expandRangeLabel))];
+  if (s === 'CHAO') {
+    if (side === 'D') return ['CHAO_TISSUE_D', 'CHAO_TTD_D', 'CHAO_LONIL_D'];
+    if (side === 'E') return ['CHAO_TISSUE_E', 'CHAO_TTD_E', 'CHAO_LONIL_E'];
+    return ['CHAO_TISSUE_D', 'CHAO_TISSUE_E', 'CHAO_TTD_D', 'CHAO_TTD_E', 'CHAO_LONIL_D', 'CHAO_LONIL_E'];
+  }
   if (['TISSUE', 'TTD', 'LONIL'].includes(s)) {
     const fromDb = cache.estoque
       .map((row) => normalizeAreaCode(row.area))
@@ -1035,13 +1047,14 @@ async function importContagemFromPlanilha() {
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
     const scope = el.contagemScope?.value;
-    const positionsAll = new Set(['A', 'B', 'C', 'ESTRUTURA', 'TISSUE', 'LONIL', 'TTD']
+    const positionsAll = new Set(['A', 'B', 'C', 'ESTRUTURA', 'CHAO', 'TISSUE', 'LONIL', 'TTD']
       .flatMap((s) => getContagemPositions(s, 'ALL')));
     const normalizeHeader = (key) => String(key || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
     const parseDepositoScope = (deposito) => {
       const dep = normalizeText(deposito);
       if (!dep) return '';
       if (dep.includes('ESTRUT')) return 'ESTRUTURA';
+      if (dep.includes('CHAO')) return 'CHAO';
       if (dep.includes('TISSUE') || dep.includes('TSUI')) return 'TISSUE';
       if (dep.includes('LONIL')) return 'LONIL';
       if (dep.includes('TTD') || dep.includes('TTT')) return 'TTD';
@@ -1079,6 +1092,22 @@ async function importContagemFromPlanilha() {
         if (!guessScope && area.startsWith('LONIL')) guessScope = 'LONIL';
         if (!guessScope && area.startsWith('TTD')) guessScope = 'TTD';
         if (!guessScope && /^(R\d+\.\d+|CHAOESTRUTURA)$/.test(area)) guessScope = 'ESTRUTURA';
+        if (!guessScope && (row.quadrante.includes('CHAO') || area.startsWith('CHAO'))) guessScope = 'CHAO';
+
+        if (guessScope === 'ESTRUTURA' && !/^(R\d+\.\d+|CHAOESTRUTURA)$/.test(area)) {
+          const expanded = expandRangeLabel(row.quadrante || row.area || '');
+          if (expanded?.length) area = normalizeAreaCode(expanded[0]);
+        }
+
+        if (guessScope === 'CHAO' && !area.startsWith('CHAO_')) {
+          const sideFromQuadrante = row.quadrante.includes('DIREIT') ? 'D' : (row.quadrante.includes('ESQUERD') ? 'E' : 'D');
+          const dep = row.depositoScope === 'TISSUE' ? 'TISSUE'
+            : (row.depositoScope === 'TTD' ? 'TTD'
+              : (row.depositoScope === 'LONIL' ? 'LONIL'
+                : (row.deposito.includes('TISSUE') || row.deposito.includes('TSUI') ? 'TISSUE'
+                  : (row.deposito.includes('TTD') || row.deposito.includes('TTT') ? 'TTD' : 'LONIL'))));
+          area = `CHAO_${dep}_${sideFromQuadrante}`;
+        }
 
         if (!area && ['TISSUE', 'TTD', 'LONIL'].includes(guessScope)) {
           const sideFromQuadrante = row.quadrante.includes('DIREIT') ? 'D' : (row.quadrante.includes('ESQUERD') ? 'E' : '');
@@ -1090,7 +1119,7 @@ async function importContagemFromPlanilha() {
           area = `${guessScope}${String(autoIndex[key]).padStart(2, '0')}${preferredSide}`;
         }
 
-        if (!area && ['A', 'B', 'C', 'PRINCIPAL'].includes(guessScope)) return null;
+        if (!area && ['A', 'B', 'C', 'PRINCIPAL', 'CHAO'].includes(guessScope)) return null;
         if ((guessScope === 'A' || /^A/.test(area)) && /^\d+$/.test(area)) area = `A${String(Number(area)).padStart(2, '0')}`;
         if ((guessScope === 'C' || /^C/.test(area)) && /^\d+$/.test(area)) area = `C${String(Number(area)).padStart(2, '0')}`;
         if ((guessScope === 'B' || guessScope === 'PRINCIPAL') && /^B?\d+$/.test(area)) {
@@ -1157,18 +1186,17 @@ function inferTipoContagem(posicao, sku) {
 
 async function applyContagemToConsulta() {
   if (!supabaseClient) return setStatus(el.contagemStatus, 'Banco não conectado para atualizar consulta.', 'error');
-  const scope = el.contagemScope?.value;
-  const side = el.contagemSide?.value || 'ALL';
-  const positions = getContagemPositions(scope, side);
-  const confirmedRows = positions.flatMap((posicao) => getContagemEntries(posicao)
-    .map((entry) => computeContagem(posicao, entry, scope))
+  const allScopes = ['A', 'B', 'C', 'ESTRUTURA', 'CHAO', 'TISSUE', 'TTD', 'LONIL'];
+  const confirmedRows = allScopes.flatMap((scope) => getContagemPositions(scope, 'ALL')
+    .flatMap((posicao) => getContagemEntries(posicao)
+      .map((entry) => computeContagem(posicao, entry, scope))
     .filter((row) => row.confirmada && normalizeText(row.sku) && row.paletes > 0)
     .map((row) => ({
       area: normalizeAreaCode(row.posicao),
       sku: Number(row.sku),
       tipo: ['PL2', 'PBR'].includes(normalizeText(row.tipoPlt)) ? normalizeText(row.tipoPlt) : inferTipoContagem(row.posicao, row.sku),
       paletes: Number(row.paletes)
-    })));
+    }))));
 
   if (!confirmedRows.length) {
     return setStatus(el.contagemStatus, 'Nenhuma linha confirmada para atualizar a consulta.', 'error');
