@@ -74,6 +74,37 @@
           </form>
         </div>
 
+
+        <div class="card" id="userAdminCard">
+          <h2>Cadastro de usuários</h2>
+          <p class="helper-text">Somente usuário mestre pode cadastrar/editar perfis.</p>
+          <form id="userForm" class="grid form-grid">
+            <label>Usuário <input name="usuario" required placeholder="Ex.: 12345678" /></label>
+            <label>Nome <input name="nome" placeholder="Ex.: Operador turno A" /></label>
+            <label>Senha <input name="senha" type="password" required /></label>
+            <label>Perfil
+              <select name="perfil" required>
+                <option value="COMUM">COMUM</option>
+                <option value="MASTER">MASTER</option>
+              </select>
+            </label>
+            <label class="inline-check">
+              <input name="ativo" type="checkbox" checked />
+              Usuário ativo
+            </label>
+            <div class="actions">
+              <button type="submit">Salvar usuário</button>
+            </div>
+          </form>
+          <p id="userStatus" class="status"></p>
+          <div class="table-wrapper">
+            <table id="usersTable">
+              <thead><tr><th>Usuário</th><th>Nome</th><th>Perfil</th><th>Ativo</th><th>Ação</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="card" id="cadastroImportCard">
           <h2>Importar planilha (incluir / apagar posições)</h2>
           <form id="importForm" class="grid form-grid">

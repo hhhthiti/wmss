@@ -45,6 +45,9 @@ const el = {
   feedback: document.getElementById('feedback'),
   estoqueForm: document.getElementById('estoqueForm'),
   produtoForm: document.getElementById('produtoForm'),
+  userForm: document.getElementById('userForm'),
+  userStatus: document.getElementById('userStatus'),
+  usersTableBody: document.querySelector('#usersTable tbody'),
   expedicaoForm: document.getElementById('expedicaoForm'),
   importForm: document.getElementById('importForm'),
   importFile: document.getElementById('importFile'),
@@ -121,7 +124,7 @@ const el = {
 };
 
 let supabaseClient;
-let cache = { estoque: [], movimentacoes: [], produtos: [] };
+let cache = { estoque: [], movimentacoes: [], produtos: [], users: [] };
 let fracionadoMap = {};
 let turnoSnapshots = [];
 let lastTurnoResultado = [];
@@ -240,11 +243,14 @@ function setupLogin() {
     };
     setStatus(el.loginStatus, currentUser.role === 'master' ? 'Login mestre ativo.' : `Login usuário ativo (${currentUser.id}).`, 'success');
     applyRoleVisibility();
+    loadUsers().catch((err) => setStatus(el.userStatus, `Erro ao carregar usuários: ${err.message}`, 'error'));
   });
   el.logoutBtn?.addEventListener('click', () => {
     currentUser = null;
     setStatus(el.loginStatus, 'Sessão encerrada. Faça login para acessar as áreas.', '');
     applyRoleVisibility();
+    cache.users = [];
+    renderUsersTable();
   });
   applyRoleVisibility();
   setStatus(el.loginStatus, 'Faça login para continuar.', '');
@@ -443,6 +449,71 @@ async function runAiAssist() {
 }
 
 
+
+function renderUsersTable() {
+  if (!el.usersTableBody) return;
+  el.usersTableBody.innerHTML = '';
+  cache.users.forEach((u) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${u.usuario}</td><td>${u.nome || ''}</td><td>${u.perfil}</td><td>${u.ativo ? 'SIM' : 'NÃO'}</td><td><button type="button" class="secondary" data-edit="${u.usuario}">Editar</button></td>`;
+    tr.querySelector('[data-edit]')?.addEventListener('click', () => {
+      if (!el.userForm) return;
+      el.userForm.usuario.value = u.usuario || '';
+      el.userForm.nome.value = u.nome || '';
+      el.userForm.senha.value = '';
+      el.userForm.perfil.value = u.perfil || 'COMUM';
+      el.userForm.ativo.checked = Boolean(u.ativo);
+      setStatus(el.userStatus, `Editando usuário ${u.usuario}. Informe nova senha para atualizar.`, '');
+    });
+    el.usersTableBody.appendChild(tr);
+  });
+}
+
+async function loadUsers() {
+  if (!supabaseClient || !currentUser || currentUser.role !== 'master') {
+    cache.users = [];
+    renderUsersTable();
+    return;
+  }
+  const { data, error } = await supabaseClient
+    .from('wmss_users')
+    .select('usuario, nome, perfil, ativo')
+    .order('usuario', { ascending: true });
+  if (error) throw error;
+  cache.users = data ?? [];
+  renderUsersTable();
+}
+
+async function handleUserSubmit(event) {
+  event.preventDefault();
+  if (!supabaseClient) return setStatus(el.userStatus, 'Banco não conectado.', 'error');
+  if (!currentUser || currentUser.role !== 'master') return setStatus(el.userStatus, 'Somente mestre pode cadastrar usuários.', 'error');
+
+  const formData = new FormData(event.target);
+  const usuario = normalizeText(formData.get('usuario'));
+  const nome = String(formData.get('nome') || '').trim();
+  const senha = String(formData.get('senha') || '').trim();
+  const perfil = normalizeText(formData.get('perfil') || 'COMUM');
+  const ativo = formData.get('ativo') === 'on';
+
+  if (!usuario || !senha) return setStatus(el.userStatus, 'Informe usuário e senha.', 'error');
+  if (!['MASTER', 'COMUM'].includes(perfil)) return setStatus(el.userStatus, 'Perfil inválido.', 'error');
+
+  const payload = { usuario, nome, senha, perfil, ativo };
+  try {
+    const { error } = await supabaseClient
+      .from('wmss_users')
+      .upsert(payload, { onConflict: 'usuario' });
+    if (error) throw error;
+    event.target.reset();
+    if (event.target.ativo) event.target.ativo.checked = true;
+    await loadUsers();
+    setStatus(el.userStatus, 'Usuário salvo com sucesso.', 'success');
+  } catch (error) {
+    setStatus(el.userStatus, `Erro ao salvar usuário: ${error.message}`, 'error');
+  }
+}
+
 function createClient() {
   try {
     if (!window.supabase?.createClient) throw new Error('Biblioteca do Supabase indisponível no momento.');
@@ -492,7 +563,7 @@ async function loadProdutos() {
 async function loadAll() {
   if (!supabaseClient) return;
   try {
-    await Promise.all([loadEstoque(), loadMovimentacoes(), loadProdutos()]);
+    await Promise.all([loadEstoque(), loadMovimentacoes(), loadProdutos(), loadUsers()]);
     showFeedback('Dados carregados com sucesso.');
   } catch (error) {
     showFeedback(`Erro ao carregar dados: ${error.message}`, 'error');
@@ -2385,6 +2456,7 @@ function init() {
   });
   el.estoqueForm.addEventListener('submit', handleEstoqueSubmit);
   el.produtoForm.addEventListener('submit', handleProdutoSubmit);
+  el.userForm?.addEventListener('submit', handleUserSubmit);
   el.expedicaoForm?.addEventListener('submit', handleExpedicaoSubmit);
   el.importForm?.addEventListener('submit', handleImportSubmit);
   el.selectImportBtn?.addEventListener('click', () => el.importFile?.click());

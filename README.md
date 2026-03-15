@@ -173,3 +173,23 @@ com payload:
 Publique uma Edge Function `wmss-ai-assist` no Supabase para conectar no provedor de LLM (AirLLM/OpenAI/etc).
 
 > Recomendado: manter chave do provedor **somente** no backend (Edge Function), nunca no browser.
+
+
+### Edge Function pronta no repositório
+
+Também foi adicionada a implementação pronta em:
+
+- `supabase/functions/wmss-ai-assist/index.ts`
+
+E guia de deploy em:
+
+- `supabase/functions/wmss-ai-assist/README.md`
+
+## Tela de cadastro de usuários
+
+Na aba **Cadastro** foi incluída a seção **Cadastro de usuários** (somente mestre), com:
+
+- criação/edição de usuário,
+- seleção de perfil (`COMUM`/`MASTER`),
+- ativação/desativação,
+- listagem de usuários já cadastrados.
