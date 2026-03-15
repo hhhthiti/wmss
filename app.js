@@ -192,21 +192,50 @@ function applyRoleVisibility() {
   if (!activeVisible && visibleTabs[0]) visibleTabs[0].click();
 }
 
+async function authenticateUser(user, pass) {
+  if (!user || !pass) return null;
+
+  // Fallback local para não travar operação enquanto a tabela de usuários não é criada.
+  if (user === '30152962' && pass === '123') {
+    return { usuario: user, perfil: 'MASTER', ativo: true };
+  }
+
+  if (!supabaseClient) return null;
+
+  const { data, error } = await supabaseClient
+    .from('wmss_users')
+    .select('usuario, perfil, ativo')
+    .eq('usuario', user)
+    .eq('senha', pass)
+    .eq('ativo', true)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return data;
+}
+
 function setupLogin() {
-  const loginMaster = (user, pass) => user === '30152962' && pass === '123';
-  el.loginForm?.addEventListener('submit', (event) => {
+  el.loginForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const user = normalizeText(el.loginUser?.value || '');
     const pass = String(el.loginPass?.value || '');
-    if (!user) {
-      setStatus(el.loginStatus, 'Informe o usuário.', 'error');
+    if (!user || !pass) {
+      setStatus(el.loginStatus, 'Informe usuário e senha.', 'error');
       return;
     }
+
+    const auth = await authenticateUser(user, pass);
+    if (!auth) {
+      setStatus(el.loginStatus, 'Usuário/senha inválidos ou usuário inativo.', 'error');
+      return;
+    }
+
+    const perfil = normalizeText(auth.perfil || 'COMUM');
     currentUser = {
-      id: user,
-      role: loginMaster(user, pass) ? 'master' : 'common'
+      id: auth.usuario || user,
+      role: perfil === 'MASTER' ? 'master' : 'common'
     };
-    setStatus(el.loginStatus, currentUser.role === 'master' ? 'Login mestre ativo.' : `Login usuário ativo (${user}).`, 'success');
+    setStatus(el.loginStatus, currentUser.role === 'master' ? 'Login mestre ativo.' : `Login usuário ativo (${currentUser.id}).`, 'success');
     applyRoleVisibility();
   });
   el.logoutBtn?.addEventListener('click', () => {
@@ -215,7 +244,7 @@ function setupLogin() {
     applyRoleVisibility();
   });
   applyRoleVisibility();
-  setStatus(el.loginStatus, 'Faça login. Usuário mestre: 30152962.', '');
+  setStatus(el.loginStatus, 'Faça login para continuar.', '');
 }
 
 function setStatus(target, message, type = '') {

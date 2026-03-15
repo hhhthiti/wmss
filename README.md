@@ -117,3 +117,31 @@ Quando ativo, após ações de cadastro/edição, exclusão, importação e expe
 - totais expedidos por SKU.
 
 > Importante: por segurança do navegador, não é possível editar automaticamente o mesmo arquivo Excel já aberto no seu computador. O que o sistema faz é gerar uma nova versão atualizada da planilha.
+
+
+## Login de usuários (Supabase)
+
+Para cadastrar novos usuários da aplicação, execute também:
+
+- `supabase/wmss_users.sql`
+
+Esse script cria a tabela `public.wmss_users` com:
+
+- `usuario` (único),
+- `senha`,
+- `perfil` (`MASTER`/`COMUM`),
+- `ativo`.
+
+Depois de rodar o script, você pode inserir novos usuários assim:
+
+```sql
+insert into public.wmss_users (usuario, senha, nome, perfil, ativo)
+values ('12345678', 'minhasenha', 'Operador 1', 'COMUM', true)
+on conflict (usuario) do update
+set senha = excluded.senha,
+    nome = excluded.nome,
+    perfil = excluded.perfil,
+    ativo = excluded.ativo;
+```
+
+> Segurança: o login atual é simples (senha em texto) para operação rápida. Recomendado migrar para Supabase Auth ou hash de senha em produção.
