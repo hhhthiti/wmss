@@ -283,9 +283,16 @@
             <div class="actions">
               <button type="submit">Calcular planejamento</button>
               <button id="planejamentoEstimateTurnoBtn" type="button" class="secondary">Estimar pela conferência</button>
+              <button id="aiAssistBtn" type="button" class="secondary">✨ Sugerir com IA</button>
             </div>
           </form>
           <div id="planejamentoResultado" class="status"></div>
+          <div class="ai-assist-box">
+            <label>Pergunta para IA (planejamento/ocupação)
+              <textarea id="aiAssistPrompt" rows="3" placeholder="Ex.: Quais blocados devo desfazer hoje para receber 120 paletes?"></textarea>
+            </label>
+            <p id="aiAssistStatus" class="status"></p>
+          </div>
           <div class="table-wrapper">
             <table id="planejamentoTable">
               <thead><tr><th>Bloco</th><th>Capacidade</th><th>Ocupado</th><th>Livre</th><th>Após NF</th><th>Ação</th></tr></thead>

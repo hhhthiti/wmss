@@ -145,3 +145,31 @@ set senha = excluded.senha,
 ```
 
 > Segurança: o login atual é simples (senha em texto) para operação rápida. Recomendado migrar para Supabase Auth ou hash de senha em produção.
+
+## Integração de IA (AirLLM/OpenAI via Edge Function)
+
+A tela de **Planejamento** agora possui o botão **✨ Sugerir com IA**.
+
+Ela chama a função HTTP:
+
+- `POST /functions/v1/wmss-ai-assist`
+
+com payload:
+
+```json
+{
+  "prompt": "texto digitado pelo usuário",
+  "context": {
+    "capacidadePlanejamento": {"A":80,"BD":40,"BE":32,"C":48},
+    "ocupado": {"A":0,"BD":0,"BE":0,"C":0},
+    "ocupacaoSetores": {"principal":0,"tissue":0,"lonil":0,"ttd":0},
+    "topSkus": []
+  }
+}
+```
+
+### Próximo passo para ativar de verdade
+
+Publique uma Edge Function `wmss-ai-assist` no Supabase para conectar no provedor de LLM (AirLLM/OpenAI/etc).
+
+> Recomendado: manter chave do provedor **somente** no backend (Edge Function), nunca no browser.

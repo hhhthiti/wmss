@@ -73,6 +73,9 @@ const el = {
   planejamentoFile: document.getElementById('planejamentoFile'),
   planejamentoResultado: document.getElementById('planejamentoResultado'),
   planejamentoEstimateTurnoBtn: document.getElementById('planejamentoEstimateTurnoBtn'),
+  aiAssistBtn: document.getElementById('aiAssistBtn'),
+  aiAssistPrompt: document.getElementById('aiAssistPrompt'),
+  aiAssistStatus: document.getElementById('aiAssistStatus'),
   planejamentoBody: document.querySelector('#planejamentoTable tbody'),
   ocupacaoForm: document.getElementById('ocupacaoForm'),
   ocupacaoStatus: document.getElementById('ocupacaoStatus'),
@@ -385,6 +388,60 @@ function renderPlanejamentoTable(ocupado, previsaoPaletes = 0) {
     }
   }
 }
+
+
+function buildAiAssistContext() {
+  const ocupado = getPlanejamentoOcupacaoAtual();
+  const ocupacaoSetores = getPaletesResumoPorSetor();
+  const topSkus = groupTotalBySku(cache.estoque, { excludeRetrabalho: true }).slice(0, 30);
+  return {
+    capacidadePlanejamento,
+    ocupado,
+    ocupacaoSetores,
+    topSkus,
+    dataHora: new Date().toISOString()
+  };
+}
+
+async function runAiAssist() {
+  const prompt = String(el.aiAssistPrompt?.value || '').trim();
+  if (!prompt) {
+    setStatus(el.aiAssistStatus, 'Escreva uma pergunta para a IA.', 'error');
+    return;
+  }
+
+  setStatus(el.aiAssistStatus, 'Consultando IA...', '');
+  const payload = { prompt, context: buildAiAssistContext() };
+
+  try {
+    const response = await fetch(`${defaultConfig.url}/functions/v1/wmss-ai-assist`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: defaultConfig.key,
+        Authorization: `Bearer ${defaultConfig.key}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const msg = await response.text();
+      throw new Error(msg || `Falha HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    const answer = String(data?.answer || data?.resposta || '').trim();
+    if (!answer) throw new Error('Resposta vazia da função wmss-ai-assist.');
+    setStatus(el.aiAssistStatus, answer, 'success');
+  } catch (error) {
+    setStatus(
+      el.aiAssistStatus,
+      `Não foi possível consultar a IA agora. Verifique se a Edge Function "wmss-ai-assist" está publicada. Detalhe: ${error.message}`,
+      'error'
+    );
+  }
+}
+
 
 function createClient() {
   try {
@@ -2231,6 +2288,8 @@ function setupTabs() {
 }
 
 function setupPlanejamento() {
+  el.aiAssistBtn?.addEventListener('click', runAiAssist);
+
   el.planejamentoEstimateTurnoBtn?.addEventListener('click', () => {
     const estimadas = estimateContagemFromTurno(el.contagemScope?.value || 'A', el.contagemSide?.value || 'ALL');
     renderContagemTable();
