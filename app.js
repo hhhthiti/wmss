@@ -36,6 +36,11 @@ function storageGetJSON(key, fallback) {
 const el = {
   paleteIncompletoToggle: document.getElementById('paleteIncompletoToggle'),
   paleteIncompletoFields: document.getElementById('paleteIncompletoFields'),
+  loginForm: document.getElementById('loginForm'),
+  loginUser: document.getElementById('loginUser'),
+  loginPass: document.getElementById('loginPass'),
+  logoutBtn: document.getElementById('logoutBtn'),
+  loginStatus: document.getElementById('loginStatus'),
   connectionStatus: document.getElementById('connectionStatus'),
   feedback: document.getElementById('feedback'),
   estoqueForm: document.getElementById('estoqueForm'),
@@ -56,6 +61,7 @@ const el = {
   consultaFilterForm: document.getElementById('consultaFilterForm'),
   consultaDepositoFilter: document.getElementById('consultaDepositoFilter'),
   consultaSideFilter: document.getElementById('consultaSideFilter'),
+  consultaSkuSearch: document.getElementById('consultaSkuSearch'),
   consultaMapaBox: document.getElementById('consultaMapaBox'),
   mapaAreaSelect: document.getElementById('mapaAreaSelect'),
   mapaPosicaoInput: document.getElementById('mapaPosicaoInput'),
@@ -66,6 +72,7 @@ const el = {
   previsaoEntrada: document.getElementById('previsaoEntrada'),
   planejamentoFile: document.getElementById('planejamentoFile'),
   planejamentoResultado: document.getElementById('planejamentoResultado'),
+  planejamentoEstimateTurnoBtn: document.getElementById('planejamentoEstimateTurnoBtn'),
   planejamentoBody: document.querySelector('#planejamentoTable tbody'),
   ocupacaoForm: document.getElementById('ocupacaoForm'),
   ocupacaoStatus: document.getElementById('ocupacaoStatus'),
@@ -79,7 +86,6 @@ const el = {
   contagemSide: document.getElementById('contagemSide'),
   contagemLoadBtn: document.getElementById('contagemLoadBtn'),
   contagemImportBtn: document.getElementById('contagemImportBtn'),
-  contagemEstimateBtn: document.getElementById('contagemEstimateBtn'),
   contagemClearChecksBtn: document.getElementById('contagemClearChecksBtn'),
   contagemApplyBtn: document.getElementById('contagemApplyBtn'),
   contagemFile: document.getElementById('contagemFile'),
@@ -114,10 +120,10 @@ const el = {
 let supabaseClient;
 let cache = { estoque: [], movimentacoes: [], produtos: [] };
 let fracionadoMap = {};
-let turnoSnapshots = storageGetJSON('wmss_turno_snapshots', []);
+let turnoSnapshots = [];
 let lastTurnoResultado = [];
-let turnoUltimaPlanilhaSku = storageGetJSON('wmss_turno_ultima_planilha_sku', {});
-let contagemMap = storageGetJSON('wmss_contagem_map', {});
+let turnoUltimaPlanilhaSku = {};
+let contagemMap = {};
 
 const manualOcupados = new Set([
   'A14', 'A15', 'A16', 'A17', 'A18', 'A19',
@@ -158,13 +164,59 @@ const capacidadePlanejamento = {
   C: 48
 };
 
-const autoExportEnabled = storageGet('wmss_auto_export', '0') === '1';
+const autoExportEnabled = false;
 if (el.autoExportToggle) el.autoExportToggle.checked = autoExportEnabled;
-fracionadoMap = storageGetJSON('wmss_fracionado_map', {});
+fracionadoMap = {};
 
-const darkModeEnabled = storageGet('wmss_theme', 'light') === 'dark';
+const darkModeEnabled = false;
 document.body.classList.toggle('dark', darkModeEnabled);
 if (el.themeToggleBtn) el.themeToggleBtn.textContent = darkModeEnabled ? '☀️ Modo claro' : '🌙 Modo escuro';
+
+
+let currentUser = null;
+
+function canAccessRole(requiredRole) {
+  if (!requiredRole) return true;
+  if (!currentUser) return false;
+  if (currentUser.role === 'master') return true;
+  return requiredRole === 'common';
+}
+
+function applyRoleVisibility() {
+  document.querySelectorAll('[data-role]').forEach((node) => {
+    const role = node.getAttribute('data-role');
+    node.classList.toggle('hidden-by-role', !canAccessRole(role));
+  });
+  const visibleTabs = Array.from(document.querySelectorAll('.tab-btn')).filter((btn) => !btn.classList.contains('hidden-by-role'));
+  const activeVisible = visibleTabs.find((btn) => btn.classList.contains('active'));
+  if (!activeVisible && visibleTabs[0]) visibleTabs[0].click();
+}
+
+function setupLogin() {
+  const loginMaster = (user, pass) => user === '30152962' && pass === '123';
+  el.loginForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const user = normalizeText(el.loginUser?.value || '');
+    const pass = String(el.loginPass?.value || '');
+    if (!user) {
+      setStatus(el.loginStatus, 'Informe o usuário.', 'error');
+      return;
+    }
+    currentUser = {
+      id: user,
+      role: loginMaster(user, pass) ? 'master' : 'common'
+    };
+    setStatus(el.loginStatus, currentUser.role === 'master' ? 'Login mestre ativo.' : `Login usuário ativo (${user}).`, 'success');
+    applyRoleVisibility();
+  });
+  el.logoutBtn?.addEventListener('click', () => {
+    currentUser = null;
+    setStatus(el.loginStatus, 'Sessão encerrada. Faça login para acessar as áreas.', '');
+    applyRoleVisibility();
+  });
+  applyRoleVisibility();
+  setStatus(el.loginStatus, 'Faça login. Usuário mestre: 30152962.', '');
+}
 
 function setStatus(target, message, type = '') {
   if (!target) return;
@@ -489,12 +541,14 @@ function sideLabel(side) {
 function filterConsultaRows(rows) {
   const deposito = normalizeText(el.consultaDepositoFilter?.value || 'ALL');
   const side = normalizeText(el.consultaSideFilter?.value || 'ALL');
+  const skuSearch = normalizeText(el.consultaSkuSearch?.value || '');
   return rows.filter((row) => {
     const dep = getDepositoFromArea(row.area);
     const rowSide = getSideFromArea(row.area);
     const depositoOk = deposito === 'ALL' ? true : dep === deposito;
     const sideOk = side === 'ALL' ? true : rowSide === side;
-    return depositoOk && sideOk;
+    const skuOk = !skuSearch || normalizeText(row.sku).includes(skuSearch);
+    return depositoOk && sideOk && skuOk;
   });
 }
 
@@ -556,6 +610,12 @@ function renderConsulta() {
     tr.innerHTML = `<td>${getDepositoFromArea(row.area)}</td><td>${sideLabel(getSideFromArea(row.area))}</td><td>${row.area}</td><td>${row.sku}</td><td>${row.tipo}</td><td>${row.paletes}</td>`;
     el.consultaAreaBody.appendChild(tr);
   });
+
+  if (!rowsFiltrados.length) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="6">Nenhum resultado para os filtros atuais.</td>';
+    el.consultaAreaBody.appendChild(tr);
+  }
 
   const totais = groupTotalBySku(rowsFiltrados, { excludeRetrabalho: true });
   el.totaisSkuBody.innerHTML = '';
@@ -878,9 +938,6 @@ function getContagemEntries(posicao) {
     sku: item.sku || '',
     profundidade1: Number(item.profundidade1 || 0),
     largura1: Number(item.largura1 || 0),
-    segundaCamada: typeof item.segundaCamada === 'boolean' ? item.segundaCamada : (Number(item.profundidade2 || 0) > 0 || Number(item.largura2 || 0) > 0),
-    profundidade2: Number(item.profundidade2 || 0),
-    largura2: Number(item.largura2 || 0),
     terceiraCamada: Boolean(item.terceiraCamada),
     paletesTerceira: Number(item.paletesTerceira || 0),
     fardosFaltando: Number(item.fardosFaltando || 0),
@@ -897,9 +954,6 @@ function createEmptyContagemEntry() {
     sku: '',
     profundidade1: 0,
     largura1: 0,
-    segundaCamada: false,
-    profundidade2: 0,
-    largura2: 0,
     terceiraCamada: false,
     paletesTerceira: 0,
     fardosFaltando: 0,
@@ -917,7 +971,6 @@ function saveContagemEntries(posicao, entries) {
     ...entry
   }));
   contagemMap[posicao] = normalized;
-  storageSet('wmss_contagem_map', JSON.stringify(contagemMap));
 }
 
 function addContagemEntry(posicao) {
@@ -946,8 +999,7 @@ function computeContagem(posicao, entry, scope = el.contagemScope?.value) {
     return { ...st, posicao, paletes, paletesCalculados: 0, fardos };
   }
   const basePrimeira = Math.max(0, st.profundidade1 * st.largura1);
-  const baseSegunda = st.segundaCamada ? Math.max(0, st.profundidade2 * st.largura2) : 0;
-  const base = isEstrutura ? (normalizeText(st.sku) ? 1 : 0) : basePrimeira + baseSegunda;
+  const base = isEstrutura ? (normalizeText(st.sku) ? 1 : 0) : basePrimeira;
   const terceira = st.terceiraCamada ? Math.max(0, st.paletesTerceira) : 0;
   const paletesCalculados = base + terceira;
   const paletes = st.usarTotalManual && Number(st.totalManual) > 0 ? Number(st.totalManual) : paletesCalculados;
@@ -970,8 +1022,7 @@ function estimateLayersFromTotal(totalPaletes) {
   const total = Math.max(0, Number(totalPaletes) || 0);
   const capacidadeCamada = 15;
   const primeira = Math.min(total, capacidadeCamada);
-  const segunda = Math.min(Math.max(0, total - capacidadeCamada), capacidadeCamada);
-  const terceira = Math.max(0, total - (capacidadeCamada * 2));
+  const terceira = Math.max(0, total - capacidadeCamada);
 
   const toDepthWidth = (qty) => {
     if (qty <= 0) return { profundidade: 0, largura: 0 };
@@ -981,13 +1032,9 @@ function estimateLayersFromTotal(totalPaletes) {
   };
 
   const c1 = toDepthWidth(primeira);
-  const c2 = toDepthWidth(segunda);
   return {
     profundidade1: c1.profundidade,
     largura1: c1.largura,
-    segundaCamada: segunda > 0,
-    profundidade2: c2.profundidade,
-    largura2: c2.largura,
     terceiraCamada: terceira > 0,
     paletesTerceira: terceira
   };
@@ -999,8 +1046,6 @@ function hasManualContagemData(entry) {
     || Number(entry?.totalManual) > 0
     || Number(entry?.profundidade1) > 0
     || Number(entry?.largura1) > 0
-    || Number(entry?.profundidade2) > 0
-    || Number(entry?.largura2) > 0
     || Number(entry?.paletesTerceira) > 0
     || Boolean(entry?.usarTotalManual)
     || Number(entry?.fardosFaltando) > 0
@@ -1155,7 +1200,6 @@ async function importContagemFromPlanilha() {
 
     if (el.contagemImportResetToggle?.checked) {
       contagemMap = {};
-      storageSet('wmss_contagem_map', JSON.stringify(contagemMap));
     }
 
     const grouped = validRows.reduce((acc, row) => {
@@ -1266,7 +1310,7 @@ function preloadContagemFromEstoque(scope, side = 'ALL') {
 
   positions.forEach((posicao) => {
     const existentes = getContagemEntries(posicao);
-    const temDadosDigitados = existentes.some((entry) => normalizeText(entry.sku) || Number(entry.profundidade1) > 0 || Number(entry.largura1) > 0 || Number(entry.profundidade2) > 0 || Number(entry.largura2) > 0 || Number(entry.paletesTerceira) > 0 || Boolean(entry.usarTotalManual) || Number(entry.fardosFaltando) > 0 || Number(entry.totalManual) > 0);
+    const temDadosDigitados = existentes.some((entry) => normalizeText(entry.sku) || Number(entry.profundidade1) > 0 || Number(entry.largura1) > 0 || Number(entry.paletesTerceira) > 0 || Boolean(entry.usarTotalManual) || Number(entry.fardosFaltando) > 0 || Number(entry.totalManual) > 0);
     if (temDadosDigitados) return;
 
     const rows = cache.estoque
@@ -1317,9 +1361,6 @@ function renderContagemTable() {
         <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="blocadoPresente" type="checkbox" ${entry.blocadoPresente ? 'checked' : ''} /></td>
         <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="profundidade1" type="number" min="0" value="${entry.profundidade1 || ''}" />`}</td>
         <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="largura1" type="number" min="0" value="${entry.largura1 || ''}" />`}</td>
-        <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="segundaCamada" type="checkbox" ${entry.segundaCamada ? 'checked' : ''} />`}</td>
-        <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : (entry.segundaCamada ? `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="profundidade2" type="number" min="0" value="${entry.profundidade2 || ''}" />` : '<span class="contagem-collapsed">marque 2ª camada</span>')}</td>
-        <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : (entry.segundaCamada ? `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="largura2" type="number" min="0" value="${entry.largura2 || ''}" />` : '<span class="contagem-collapsed">marque 2ª camada</span>')}</td>
         <td>${!entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="terceiraCamada" type="checkbox" ${entry.terceiraCamada ? 'checked' : ''} />`}</td>
         <td>${!entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="paletesTerceira" type="number" min="0" value="${entry.paletesTerceira || ''}" ${entry.terceiraCamada ? '' : 'disabled'} />`}</td>
         <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="fardosFaltando" type="number" min="0" value="${entry.fardosFaltando || ''}" /></td>
@@ -1360,16 +1401,9 @@ function renderContagemTable() {
       const idx = Number(entryIdx || 0);
       const current = { ...entries[idx] };
       current[field] = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
-      if (field === 'segundaCamada' && !event.target.checked) {
-        current.profundidade2 = 0;
-        current.largura2 = 0;
-      }
       if (field === 'blocadoPresente' && !event.target.checked) {
         current.profundidade1 = 0;
         current.largura1 = 0;
-        current.segundaCamada = false;
-        current.profundidade2 = 0;
-        current.largura2 = 0;
         current.terceiraCamada = false;
         current.paletesTerceira = 0;
       }
@@ -1411,11 +1445,8 @@ function exportContagemExcel() {
       item_posicao: row.entry_idx,
       profundidade_1: row.profundidade1,
       largura_1: row.largura1,
-      segunda_camada: row.segundaCamada ? 'SIM' : 'NAO',
-      profundidade_2: row.profundidade2,
-      largura_2: row.largura2,
-      terceira_camada: row.terceiraCamada ? 'SIM' : 'NAO',
-      paletes_terceira: row.terceiraCamada ? row.paletesTerceira : 0,
+      ultima_camada: row.terceiraCamada ? 'SIM' : 'NAO',
+      paletes_ultima: row.terceiraCamada ? row.paletesTerceira : 0,
       fardos_faltando: row.fardosFaltando || 0,
       usar_total_editavel: row.usarTotalManual ? 'SIM' : 'NAO',
       total_editavel: row.totalManual || 0,
@@ -1460,22 +1491,12 @@ function setupContagem() {
         confirmada: false,
         blocadoPresente: true,
         usarTotalManual: false,
-        segundaCamada: false,
         terceiraCamada: false
       }));
       saveContagemEntries(posicao, entries);
     });
     renderContagemTable();
     setStatus(el.contagemStatus, 'Checkboxes limpos para iniciar novo turno.', 'success');
-  });
-  el.contagemEstimateBtn?.addEventListener('click', () => {
-    const scope = el.contagemScope?.value;
-    const side = el.contagemSide?.value || 'ALL';
-    const estimadas = estimateContagemFromTurno(scope, side);
-    renderContagemTable();
-    setStatus(el.contagemStatus, estimadas
-      ? `Estimativa da última conferência aplicada em ${estimadas} linha(s). Campos continuam editáveis, inclusive o total.`
-      : 'Não há dados da última conferência para estimar (suba a planilha na aba Conferência de turno).', estimadas ? 'success' : 'error');
   });
   el.contagemApplyBtn?.addEventListener('click', applyContagemToConsulta);
   el.contagemForm?.addEventListener('submit', (event) => {
@@ -1528,7 +1549,6 @@ async function handleEstoqueSubmit(event) {
     } else {
       delete fracionadoMap[chave];
     }
-    storageSet('wmss_fracionado_map', JSON.stringify(fracionadoMap));
 
     showFeedback('Estoque salvo com sucesso.');
     event.target.reset();
@@ -1633,7 +1653,6 @@ function saveTurnoSnapshot(snapshotRows) {
   };
 
   turnoSnapshots = [item, ...turnoSnapshots].slice(0, 3);
-  storageSet('wmss_turno_snapshots', JSON.stringify(turnoSnapshots));
   renderTurnoHistory();
 }
 
@@ -1673,7 +1692,6 @@ async function handleTurnoSubmit(event) {
       acc[key] = (acc[key] || 0) + paletes;
       return acc;
     }, {});
-    storageSet('wmss_turno_ultima_planilha_sku', JSON.stringify(turnoUltimaPlanilhaSku));
 
     const snapshotAnterior = turnoSnapshots[0]?.rows ?? null;
     const atual = snapshotAnterior ? consolidarPorChave(snapshotAnterior) : consolidarPorChave(cache.estoque);
@@ -2184,6 +2202,14 @@ function setupTabs() {
 }
 
 function setupPlanejamento() {
+  el.planejamentoEstimateTurnoBtn?.addEventListener('click', () => {
+    const estimadas = estimateContagemFromTurno(el.contagemScope?.value || 'A', el.contagemSide?.value || 'ALL');
+    renderContagemTable();
+    setStatus(el.planejamentoResultado, estimadas
+      ? `Estimativa da última conferência aplicada em ${estimadas} linha(s) na Contagem.`
+      : 'Sem dados da última conferência para estimar.', estimadas ? 'success' : 'error');
+  });
+
   el.planejamentoForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     let itens = parseIncomingForecast(el.previsaoEntrada?.value);
@@ -2226,6 +2252,7 @@ function exportConsultaResumoPDF() {
 
 function setupConsulta() {
   el.consultaFilterForm?.addEventListener('change', renderConsulta);
+  el.consultaSkuSearch?.addEventListener('input', renderConsulta);
   el.mapaAreaSelect?.addEventListener('change', renderConsultaMapaHint);
   el.mapaPosicaoInput?.addEventListener('input', renderConsultaMapaHint);
   el.exportConsultaResumoPdfBtn?.addEventListener('click', exportConsultaResumoPDF);
@@ -2254,6 +2281,7 @@ function setupOcupacao() {
 
 function init() {
   setupTabs();
+  setupLogin();
   setupExports();
   setupConsulta();
   setupPlanejamento();
@@ -2271,7 +2299,6 @@ function init() {
   el.produtoForm.addEventListener('submit', handleProdutoSubmit);
   el.expedicaoForm?.addEventListener('submit', handleExpedicaoSubmit);
   el.importForm?.addEventListener('submit', handleImportSubmit);
-  el.adminPasteForm?.addEventListener('submit', handleAdminPasteSubmit);
   el.selectImportBtn?.addEventListener('click', () => el.importFile?.click());
   el.importFile?.addEventListener('change', () => {
     const name = el.importFile.files?.[0]?.name || 'Nenhum arquivo selecionado';
@@ -2283,12 +2310,10 @@ function init() {
   el.themeToggleBtn?.addEventListener('click', () => {
     const isDark = !document.body.classList.contains('dark');
     document.body.classList.toggle('dark', isDark);
-    storageSet('wmss_theme', isDark ? 'dark' : 'light');
     el.themeToggleBtn.textContent = isDark ? '☀️ Modo claro' : '🌙 Modo escuro';
   });
   el.autoExportToggle?.addEventListener('change', (event) => {
     const enabled = event.target.checked;
-    storageSet('wmss_auto_export', enabled ? '1' : '0');
     showFeedback(enabled ? 'Auto planilha ativado.' : 'Auto planilha desativado.');
   });
   createClient();

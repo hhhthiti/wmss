@@ -371,7 +371,7 @@ th, td {
 
 
 #contagemTable .contagem-sku-input {
-  min-width: 240px;
+  min-width: 320px;
 }
 
 #contagemTable .contagem-collapsed {
@@ -424,3 +424,8 @@ body.dark input, body.dark select, body.dark textarea {
   min-height: 170px;
   resize: vertical;
 }
+
+
+.hidden-by-role { display: none !important; }
+#loginForm { margin-top: 0.5rem; }
+#loginForm input { min-width: 140px; }
