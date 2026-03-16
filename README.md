@@ -25,11 +25,21 @@ Na aba **Cadastro** existe uma seção para upload de arquivo (`.xlsx`, `.xls`, 
 
 ### Colunas esperadas
 
+Formato 1 (direto):
+
 - `area`
 - `sku`
 - `tipo`
 - `paletes`
 - `acao` (opcional)
+
+Formato 2 (planilha operacional):
+
+- `sku`
+- `deposito` (Principal/Tissue/Lonil/TTD/Estrutura)
+- `quadrante` (ex.: A03, B02D, Direito/Esquerdo, Chão)
+- `qtd plt`
+- `tipo plt` (opcional; se ausente assume `PL2`)
 
 ### Regras
 

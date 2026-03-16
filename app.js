@@ -1410,26 +1410,29 @@ async function applyContagemToConsulta() {
       paletes: Number(row.paletes)
     }))));
 
-  if (!confirmedRows.length) {
-    return setStatus(el.contagemStatus, 'Nenhuma linha confirmada para atualizar a consulta.', 'error');
-  }
+  const targetAreas = [...new Set(Object.entries(contagemMap || {})
+    .filter(([, entries]) => (Array.isArray(entries) ? entries : [entries]).some((entry) => hasManualContagemData(entry) || Boolean(entry?.confirmada)))
+    .map(([area]) => normalizeAreaCode(area)))];
 
-  const targetAreas = [...new Set(confirmedRows.map((row) => row.area))];
   try {
-    const { error: deleteError } = await supabaseClient
-      .from('estoque_area')
-      .delete()
-      .in('area', targetAreas);
-    if (deleteError) throw deleteError;
+    if (targetAreas.length) {
+      const { error: deleteError } = await supabaseClient
+        .from('estoque_area')
+        .delete()
+        .in('area', targetAreas);
+      if (deleteError) throw deleteError;
+    }
 
-    const { error: insertError } = await supabaseClient
-      .from('estoque_area')
-      .upsert(confirmedRows);
-    if (insertError) throw insertError;
+    if (confirmedRows.length) {
+      const { error: insertError } = await supabaseClient
+        .from('estoque_area')
+        .upsert(confirmedRows);
+      if (insertError) throw insertError;
+    }
 
     await loadAll();
-    setStatus(el.contagemStatus, `Consulta atualizada com ${confirmedRows.length} linha(s) confirmada(s) em ${targetAreas.length} posição(ões).`, 'success');
-    showFeedback('Contagem confirmada aplicada na consulta com sucesso.');
+    setStatus(el.contagemStatus, `Consulta atualizada. Áreas limpas: ${targetAreas.length}. Linhas confirmadas aplicadas: ${confirmedRows.length}.`, 'success');
+    showFeedback('Contagem aplicada na consulta com sucesso.');
   } catch (error) {
     setStatus(el.contagemStatus, `Erro ao atualizar consulta pela contagem: ${error.message}`, 'error');
   }
@@ -1902,20 +1905,88 @@ async function handleTurnoSubmit(event) {
 }
 
 function mapImportRow(rawRow) {
+  const normalizeHeader = (key) => String(key || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
   const row = Object.fromEntries(
-    Object.entries(rawRow).map(([k, v]) => [String(k).trim().toLowerCase(), v])
+    Object.entries(rawRow || {}).map(([k, v]) => [normalizeHeader(k), v])
   );
 
-  const areaRaw = row.area ?? row['área'] ?? row.endereco ?? row.endereço;
-  const skuRaw = row.sku ?? row.codsku ?? row['cód_sku'];
-  const tipoRaw = row.tipo ?? row.produto_tipo;
-  const paletesRaw = row.paletes ?? row.pallets ?? row.quantidade;
+  const toNum = (v) => {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : NaN;
+    const raw = String(v ?? '').trim().replace(',', '.');
+    if (!raw) return NaN;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : NaN;
+  };
+
+  const depositoRaw = normalizeText(row.deposito ?? row.deposito ?? row.setor ?? row.rua ?? row.local);
+  const quadranteRaw = String(row.quadrante ?? row.endereco ?? row.endereço ?? row.area ?? row.posicao ?? '').trim();
+  const quadrante = normalizeAreaCode(quadranteRaw);
+  const ladoRaw = normalizeText(row.lado ?? row.side ?? '');
+
+  const inferArea = () => {
+    const explicitArea = normalizeAreaCode(row.area ?? row['área'] ?? row.endereco ?? row.endereço ?? row.posicao);
+    if (explicitArea) return explicitArea;
+
+    const dep = depositoRaw;
+    const q = quadrante;
+    if (!q && !dep) return '';
+
+    if (dep.includes('ESTRUT')) {
+      if (q.includes('TUNEL')) return 'TUNEL';
+      if (q.includes('CHAO')) return 'CHAOESTRUTURA';
+      if (/^R\d+\.\d+(?:-\d+)?$/.test(q)) return normalizeAreaCode(q.replace(/-(\d+)$/, ''));
+      return normalizeAreaCode(q);
+    }
+
+    if (dep.includes('TISSUE') || dep.includes('TSUI')) {
+      const side = ladoRaw.startsWith('E') || q.includes('ESQUER') ? 'E' : 'D';
+      if (q.includes('CHAO')) return `CHAO_TISSUE_${side}`;
+      if (/^\d+$/.test(q)) return `TISSUE${String(Number(q)).padStart(2, '0')}${side}`;
+      if (/^TISSUE\d+[DE]$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (q === 'D' || q === 'E') return `TISSUE01${q}`;
+      return `TISSUE01${side}`;
+    }
+
+    if (dep.includes('LONIL')) {
+      const side = ladoRaw.startsWith('E') || q.includes('ESQUER') ? 'E' : 'D';
+      if (q.includes('CHAO')) return `CHAO_LONIL_${side}`;
+      if (/^\d+$/.test(q)) return `LONIL${String(Number(q)).padStart(2, '0')}${side}`;
+      if (/^LONIL\d+[DE]$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (q === 'D' || q === 'E') return `LONIL01${q}`;
+      return `LONIL01${side}`;
+    }
+
+    if (dep.includes('TTD') || dep.includes('TTT')) {
+      const side = ladoRaw.startsWith('E') || q.includes('ESQUER') ? 'E' : 'D';
+      if (q.includes('CHAO')) return `CHAO_TTD_${side}`;
+      if (/^\d+$/.test(q)) return `TTD${String(Number(q)).padStart(2, '0')}${side}`;
+      if (/^TTD\d+[DE]$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (q === 'D' || q === 'E') return `TTD01${q}`;
+      return `TTD01${side}`;
+    }
+
+    if (dep.includes('PRINCIPAL') || !dep) {
+      if (q.includes('PICKING')) return 'PICKING';
+      if (q.includes('CHAO')) return 'CHAO_PRINCIPAL';
+      if (/^A\d+$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (/^C\d+$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (/^B\d+[DE]$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (/^B\d+$/.test(normalizeAreaCode(q))) return `${normalizeAreaCode(q)}D`;
+      return normalizeAreaCode(q);
+    }
+
+    return normalizeAreaCode(q);
+  };
+
+  const paletesRaw = row.paletes ?? row.pallets ?? row.quantidade ?? row.qtd_plt ?? row['qtd plt'] ?? row.qtdplt;
+  const tipoRaw = row.tipo ?? row.produto_tipo ?? row.tipo_plt ?? row['tipo plt'];
+  const skuRaw = row.sku ?? row.codsku ?? row['cod_sku'] ?? row['cód_sku'];
 
   return {
-    area: normalizeAreaCode(areaRaw),
-    sku: Number(skuRaw),
-    tipo: normalizeText(tipoRaw),
-    paletes: Number(paletesRaw),
+    area: inferArea(),
+    sku: toNum(skuRaw),
+    tipo: normalizeText(tipoRaw) || 'PL2',
+    paletes: toNum(paletesRaw),
     acao: normalizeText(row.acao)
   };
 }
