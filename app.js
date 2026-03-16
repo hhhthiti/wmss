@@ -1398,30 +1398,39 @@ function inferTipoContagem(posicao, sku) {
 
 async function applyContagemToConsulta() {
   if (!supabaseClient) return setStatus(el.contagemStatus, 'Banco não conectado para atualizar consulta.', 'error');
-  const allScopes = ['A', 'B', 'C', 'ESTRUTURA', 'CHAO', 'TISSUE', 'TTD', 'LONIL'];
-  const confirmedRows = allScopes.flatMap((scope) => getContagemPositions(scope, 'ALL')
+
+  const scope = el.contagemScope?.value || 'A';
+  const side = el.contagemSide?.value || 'ALL';
+  const positions = getContagemPositions(scope, side);
+
+  const confirmedRows = positions
     .flatMap((posicao) => getContagemEntries(posicao)
       .map((entry) => computeContagem(posicao, entry, scope))
-    .filter((row) => row.confirmada && normalizeText(row.sku) && row.paletes > 0)
-    .map((row) => ({
-      area: normalizeAreaCode(row.posicao),
-      sku: Number(row.sku),
-      tipo: ['PL2', 'PBR'].includes(normalizeText(row.tipoPlt)) ? normalizeText(row.tipoPlt) : inferTipoContagem(row.posicao, row.sku),
-      paletes: Number(row.paletes)
-    }))));
+      .filter((row) => row.confirmada && normalizeText(row.sku) && row.paletes > 0)
+      .map((row) => ({
+        area: normalizeAreaCode(row.posicao),
+        sku: Number(row.sku),
+        tipo: ['PL2', 'PBR'].includes(normalizeText(row.tipoPlt)) ? normalizeText(row.tipoPlt) : inferTipoContagem(row.posicao, row.sku),
+        paletes: Number(row.paletes)
+      })));
 
-  const targetAreas = [...new Set(Object.entries(contagemMap || {})
-    .filter(([, entries]) => (Array.isArray(entries) ? entries : [entries]).some((entry) => hasManualContagemData(entry) || Boolean(entry?.confirmada)))
-    .map(([area]) => normalizeAreaCode(area)))];
+  const targetAreas = [...new Set(positions
+    .filter((posicao) => {
+      const entries = getContagemEntries(posicao);
+      return entries.some((entry) => hasManualContagemData(entry) || Boolean(entry?.confirmada));
+    })
+    .map((posicao) => normalizeAreaCode(posicao)))];
+
+  if (!targetAreas.length) {
+    return setStatus(el.contagemStatus, 'Nenhuma posição da área selecionada com dados de contagem para aplicar.', 'error');
+  }
 
   try {
-    if (targetAreas.length) {
-      const { error: deleteError } = await supabaseClient
-        .from('estoque_area')
-        .delete()
-        .in('area', targetAreas);
-      if (deleteError) throw deleteError;
-    }
+    const { error: deleteError } = await supabaseClient
+      .from('estoque_area')
+      .delete()
+      .in('area', targetAreas);
+    if (deleteError) throw deleteError;
 
     if (confirmedRows.length) {
       const { error: insertError } = await supabaseClient
@@ -1431,7 +1440,7 @@ async function applyContagemToConsulta() {
     }
 
     await loadAll();
-    setStatus(el.contagemStatus, `Consulta atualizada. Áreas limpas: ${targetAreas.length}. Linhas confirmadas aplicadas: ${confirmedRows.length}.`, 'success');
+    setStatus(el.contagemStatus, `Consulta substituída para ${targetAreas.length} posição(ões) da área ${scope}${side !== 'ALL' ? ` (${side})` : ''}. Linhas confirmadas aplicadas: ${confirmedRows.length}.`, 'success');
     showFeedback('Contagem aplicada na consulta com sucesso.');
   } catch (error) {
     setStatus(el.contagemStatus, `Erro ao atualizar consulta pela contagem: ${error.message}`, 'error');
