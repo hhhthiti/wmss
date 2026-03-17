@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>WMSS • Impressão compacta de planilha</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
@@ -32,12 +33,19 @@
         <p class="muted">
           Página exclusiva por URL para reduzir gasto de folha. Use colunas <code>sku</code> e <code>quantidade/paletes</code>. O endereço pode vir como <code>endereco/área/quadrante</code> ou somente <code>lado</code> (direito/esquerdo) + <code>deposito</code> (lonil/tissue/ttd).
         </p>
-        <input id="arquivo" type="file" accept=".xlsx,.xls,.csv" />
         <div class="actions">
+          <label>Fonte
+            <select id="fonteDados">
+              <option value="sistema">Sistema (Consulta)</option>
+              <option value="arquivo">Arquivo (.xlsx/.csv)</option>
+            </select>
+          </label>
           <label>Modo
             <select id="modoView">
               <option value="enderecos">Endereços por área</option>
               <option value="resumo">Resumo de SKUs</option>
+              <option value="chao">Somente chão por área</option>
+              <option value="mapa">Mapa (lista por área/lado)</option>
             </select>
           </label>
           <label>Área/Depósito
@@ -52,7 +60,11 @@
             </select>
           </label>
         </div>
+        <div id="arquivoWrap">
+          <input id="arquivo" type="file" accept=".xlsx,.xls,.csv" />
+        </div>
         <div class="actions">
+          <button id="carregarSistemaBtn" type="button">Carregar do sistema</button>
           <button id="gerarPdfBtn" disabled>Gerar PDF otimizado (A4)</button>
           <button id="limparBtn" class="secondary">Limpar</button>
         </div>
@@ -75,7 +87,10 @@
 
     <script>
       const el = {
+        fonteDados: document.getElementById('fonteDados'),
+        arquivoWrap: document.getElementById('arquivoWrap'),
         arquivo: document.getElementById('arquivo'),
+        carregarSistemaBtn: document.getElementById('carregarSistemaBtn'),
         gerarPdfBtn: document.getElementById('gerarPdfBtn'),
         limparBtn: document.getElementById('limparBtn'),
         status: document.getElementById('status'),
@@ -86,7 +101,55 @@
         filtroArea: document.getElementById('filtroArea')
       };
 
+      const defaultConfig = {
+        url: 'https://qfjghplxbtogshfjkawx.supabase.co',
+        key: 'sb_publishable_rIcKdaflOvJ0DLTJDcOrxA_bpTGG2hA'
+      };
+
+      let supabaseClient = null;
       let registros = [];
+
+      function normalizeAreaCode(value) {
+        return String(value ?? '').toUpperCase().replace(/[-_\s]/g, '').trim();
+      }
+
+      function getAreaTipoFromEndereco(endereco) {
+        const endNorm = String(endereco || '').toUpperCase();
+        return endNorm.includes('CHAO') ? 'CHAO'
+          : (endNorm.startsWith('TISSUE') || endNorm.startsWith('TISSUE.')) ? 'TISSUE'
+          : (endNorm.startsWith('LONIL') || endNorm.startsWith('LONIL.')) ? 'LONIL'
+          : (endNorm.startsWith('TTD') || endNorm.startsWith('TTD.')) ? 'TTD'
+          : endNorm.startsWith('R') || endNorm.includes('ESTRUT') || endNorm.includes('TUNEL') ? 'ESTRUTURA'
+          : 'PRINCIPAL';
+      }
+
+      function mapSistemaRow(row) {
+        const endereco = normalizeAreaCode(row.area);
+        return {
+          sku: String(row.sku),
+          endereco,
+          quantidade: Number(row.paletes || 0),
+          areaTipo: getAreaTipoFromEndereco(endereco)
+        };
+      }
+
+      async function carregarDoSistema() {
+        try {
+          if (!window.supabase?.createClient) throw new Error('Supabase JS não carregado.');
+          if (!supabaseClient) supabaseClient = window.supabase.createClient(defaultConfig.url, defaultConfig.key);
+          const { data, error } = await supabaseClient
+            .from('estoque_area')
+            .select('area, sku, paletes')
+            .order('area', { ascending: true })
+            .order('sku', { ascending: true });
+          if (error) throw error;
+          registros = (data || []).map(mapSistemaRow).filter((r) => Number(r.quantidade) > 0);
+          renderPreview();
+          setStatus(`Consulta carregada do sistema (${registros.length} linha(s)).`, 'success');
+        } catch (err) {
+          setStatus(`Erro ao carregar do sistema: ${err.message}`, 'error');
+        }
+      }
 
       function normalizarChave(v) {
         return String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
@@ -108,13 +171,7 @@
         }
         const quantidade = Number(row.quantidade ?? row.paletes ?? row.qtd ?? row.qtd_plt ?? row['qtd plt']);
         if (!sku || !endereco || !Number.isFinite(quantidade) || quantidade <= 0) return null;
-        const endNorm = String(endereco).toUpperCase();
-        const areaTipo = endNorm.includes('CHAO') ? 'CHAO'
-          : (endNorm.startsWith('TISSUE') || endNorm.startsWith('TISSUE.')) ? 'TISSUE'
-          : (endNorm.startsWith('LONIL') || endNorm.startsWith('LONIL.')) ? 'LONIL'
-          : (endNorm.startsWith('TTD') || endNorm.startsWith('TTD.')) ? 'TTD'
-          : endNorm.startsWith('R') || endNorm.includes('ESTRUT') || endNorm.includes('TUNEL') ? 'ESTRUTURA'
-          : 'PRINCIPAL';
+        const areaTipo = getAreaTipoFromEndereco(endereco);
         return { sku, endereco, quantidade, areaTipo };
       }
 
@@ -125,8 +182,10 @@
 
       function getRegistrosFiltrados() {
         const area = String(el.filtroArea?.value || 'ALL').toUpperCase();
-        if (area === 'ALL') return [...registros];
-        return registros.filter((r) => String(r.areaTipo || '').toUpperCase() === area);
+        let base = [...registros];
+        if (area !== 'ALL') base = base.filter((r) => String(r.areaTipo || '').toUpperCase() === area);
+        if ((el.modoView?.value || '') === 'chao') base = base.filter((r) => String(r.areaTipo || '').toUpperCase() === 'CHAO' || String(r.endereco || '').toUpperCase().includes('CHAO'));
+        return base;
       }
 
       function renderPreview() {
@@ -142,7 +201,25 @@
           return;
         }
 
-        if (modo === 'resumo') {
+        if (modo === 'mapa') {
+          el.previewHead.innerHTML = '<th>Área/Depósito</th><th>Lado</th><th>Endereços</th>' ;
+          const grouped = {};
+          filtrados.forEach((r) => {
+            const a = String(r.areaTipo || 'PRINCIPAL');
+            const e = String(r.endereco || '').toUpperCase();
+            const lado = e.endsWith('D') ? '→ Direita' : (e.endsWith('E') ? '← Esquerda' : '—');
+            const k = `${a}|${lado}`;
+            if (!grouped[k]) grouped[k] = { area: a, lado, enderecos: [] };
+            grouped[k].enderecos.push(e);
+          });
+          const linhas = Object.values(grouped).sort((x,y)=>`${x.area}${x.lado}`.localeCompare(`${y.area}${y.lado}`));
+          linhas.forEach((r) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${r.area}</td><td>${r.lado}</td><td>${r.enderecos.slice(0, 12).join(', ')}${r.enderecos.length>12?' ...':''}</td>`;
+            el.previewBody.appendChild(tr);
+          });
+          el.resumo.textContent = `${linhas.length} bloco(s) de mapa no filtro.`;
+        } else if (modo === 'resumo') {
           el.previewHead.innerHTML = '<th>SKU</th><th>Total Paletes</th><th>Áreas</th>';
           const grouped = {};
           filtrados.forEach((r) => {
@@ -208,7 +285,20 @@
         if (!filtrados.length) return;
 
         let linhas = [];
-        if (modo === 'resumo') {
+        if (modo === 'mapa') {
+          const grouped = {};
+          filtrados.forEach((r) => {
+            const a = String(r.areaTipo || 'PRINCIPAL');
+            const e = String(r.endereco || '').toUpperCase();
+            const lado = e.endsWith('D') ? 'DIREITA' : (e.endsWith('E') ? 'ESQUERDA' : 'SEM LADO');
+            const k = `${a}|${lado}`;
+            grouped[k] = grouped[k] || [];
+            grouped[k].push(e);
+          });
+          linhas = Object.entries(grouped)
+            .sort(([a], [b]) => a.localeCompare(b, 'pt-BR', { numeric: true }))
+            .map(([k, arr]) => `${k} | ${arr.slice(0, 15).join(', ')}${arr.length > 15 ? ' ...' : ''}`);
+        } else if (modo === 'resumo') {
           const grouped = {};
           filtrados.forEach((r) => {
             const k = String(r.sku);
@@ -225,7 +315,8 @@
         let y = 12;
         pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(11);
-        pdf.text(`WMSS • ${modo === 'resumo' ? 'Resumo SKU' : 'Endereços por área'}`, 10, y);
+        const titulo = modo === 'resumo' ? 'Resumo SKU' : (modo === 'mapa' ? 'Mapa por área/lado' : (modo === 'chao' ? 'Chão por área' : 'Endereços por área'));
+        pdf.text(`WMSS • ${titulo}`, 10, y);
         y += 8;
         pdf.setFont('helvetica', 'normal');
         pdf.setFontSize(9);
@@ -243,6 +334,11 @@
         setStatus('PDF gerado com sucesso.', 'success');
       }
 
+      function toggleFonteUi() {
+        const fonte = el.fonteDados?.value || 'sistema';
+        if (el.arquivoWrap) el.arquivoWrap.style.display = fonte === 'arquivo' ? 'block' : 'none';
+      }
+
       function limpar() {
         registros = [];
         el.arquivo.value = '';
@@ -251,10 +347,13 @@
       }
 
       el.arquivo.addEventListener('change', carregarArquivo);
+      el.carregarSistemaBtn?.addEventListener('click', carregarDoSistema);
+      el.fonteDados?.addEventListener('change', () => { toggleFonteUi(); renderPreview(); });
       el.modoView?.addEventListener('change', renderPreview);
       el.filtroArea?.addEventListener('change', renderPreview);
       el.gerarPdfBtn.addEventListener('click', gerarPdf);
       el.limparBtn.addEventListener('click', limpar);
+      toggleFonteUi();
     </script>
   </body>
 </html>
