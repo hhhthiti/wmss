@@ -1,6 +1,6 @@
 const defaultConfig = {
-  url: 'https://qfjghplxbtogshfjkawx.supabase.co',
-  key: 'sb_publishable_rIcKdaflOvJ0DLTJDcOrxA_bpTGG2hA'
+  url: 'https://qkdonbbvafdbooyjjmwb.supabase.co',
+  key: 'sb_publishable_JYiZBz-B3k7pdY3Ivobn0w_Jz7zIWNx'
 };
 
 
@@ -2212,6 +2212,293 @@ function setupOcupacao() {
   });
 }
 
+const nfeState = { user: null, notas: [], notaItens: [], chatTimer: null };
+
+function parseNfeXml(xmlText) {
+  const parser = new DOMParser();
+  const xml = parser.parseFromString(xmlText, 'text/xml');
+  const getTag = (tag) => xml.getElementsByTagName(tag)?.[0]?.textContent?.trim() || '';
+  const chave = getTag('chNFe');
+  const numero = getTag('nNF');
+  const itens = [...xml.getElementsByTagName('det')].map((det) => {
+    const prod = det.getElementsByTagName('prod')[0];
+    const codigo = prod?.getElementsByTagName('cProd')[0]?.textContent?.trim() || '';
+    const descricao = prod?.getElementsByTagName('xProd')[0]?.textContent?.trim() || '';
+    const qtd = Number(prod?.getElementsByTagName('qCom')[0]?.textContent || 0);
+    return { codigo, descricao, qtd_fardos: qtd };
+  });
+  if (!chave || !numero || !itens.length) throw new Error('XML inválido: não foi possível ler chave, número ou itens.');
+  return { chave, numero, itens };
+}
+
+function getNfeEls() {
+  return {
+    authSection: document.getElementById('authSection'),
+    registerForm: document.getElementById('registerForm'),
+    loginForm: document.getElementById('loginForm'),
+    recoverMode: document.getElementById('recoverMode'),
+    recoverBtn: document.getElementById('recoverBtn'),
+    sessionInfo: document.getElementById('sessionInfo'),
+    logoutBtn: document.getElementById('logoutBtn'),
+    admSection: document.getElementById('admSection'),
+    operacaoSection: document.getElementById('operacaoSection'),
+    legacyApp: document.getElementById('legacyApp'),
+    nfeUploadForm: document.getElementById('nfeUploadForm'),
+    nfeXmlFile: document.getElementById('nfeXmlFile'),
+    motoristaInput: document.getElementById('motoristaInput'),
+    telefoneMotoristaInput: document.getElementById('telefoneMotoristaInput'),
+    placaInput: document.getElementById('placaInput'),
+    notaSelect: document.getElementById('notaSelect'),
+    notaHeaderInfo: document.getElementById('notaHeaderInfo'),
+    operacaoItensBody: document.querySelector('#operacaoItensTable tbody'),
+    conferenciaForm: document.getElementById('conferenciaForm'),
+    conferenciaObs: document.getElementById('conferenciaObs'),
+    logsBody: document.querySelector('#logsTable tbody'),
+    exportLogsBtn: document.getElementById('exportLogsBtn'),
+    clearLogsBtn: document.getElementById('clearLogsBtn'),
+    admConferenciasBody: document.querySelector('#admConferenciasTable tbody'),
+    chatToggleBtn: document.getElementById('chatToggleBtn'),
+    chatBox: document.getElementById('chatBox'),
+    chatMessages: document.getElementById('chatMessages'),
+    chatForm: document.getElementById('chatForm'),
+    chatInput: document.getElementById('chatInput')
+  };
+}
+
+async function nfeLoadNotas(ui) {
+  const { data, error } = await supabaseClient.from('wmss_notas').select('*').order('created_at', { ascending: false });
+  if (error) return showFeedback(`Erro ao carregar notas: ${error.message}`, 'error');
+  nfeState.notas = data || [];
+  if (nfeState.user?.perfil === 'OPERACAO') {
+    ui.notaSelect.innerHTML = nfeState.notas.map((n) => `<option value="${n.id}">${n.numero_nota}/${n.placa}</option>`).join('');
+    await nfeLoadOperacaoItens(ui);
+  }
+}
+
+async function nfeLoadOperacaoItens(ui) {
+  const notaId = ui.notaSelect.value;
+  if (!notaId) return;
+  const nota = nfeState.notas.find((item) => item.id === notaId);
+  if (nota) ui.notaHeaderInfo.textContent = `Motorista: ${nota.motorista} | Telefone: ${nota.telefone_motorista} | Placa: ${nota.placa}`;
+  const { data, error } = await supabaseClient.from('wmss_nota_itens').select('*').eq('nota_id', notaId).order('codigo');
+  if (error) return showFeedback(`Erro ao carregar itens: ${error.message}`, 'error');
+  nfeState.notaItens = data || [];
+  ui.operacaoItensBody.innerHTML = nfeState.notaItens.map((item) => `
+    <tr>
+      <td>${item.codigo}</td>
+      <td>${item.descricao}</td>
+      <td><input data-codigo="${item.codigo}" type="number" min="0" step="1" required></td>
+    </tr>
+  `).join('');
+}
+
+async function nfeLoadLogs(ui) {
+  if (nfeState.user?.perfil !== 'ADM') return;
+  const { data, error } = await supabaseClient.from('wmss_logs').select('*, wmss_users(matricula)').order('created_at', { ascending: false }).limit(300);
+  if (error) return;
+  ui.logsBody.innerHTML = (data || []).map((log) => `
+    <tr class="${log.divergencia ? 'danger-row' : ''}">
+      <td>${new Date(log.created_at).toLocaleString('pt-BR')}</td>
+      <td>${log.wmss_users?.matricula || '-'}</td>
+      <td>${log.codigo || '-'}</td>
+      <td>${log.quantidade_esperada ?? '-'}</td>
+      <td>${log.quantidade_informada ?? '-'}</td>
+      <td>${log.divergencia ? 'SIM' : 'NÃO'}</td>
+    </tr>
+  `).join('');
+}
+
+async function nfeLoadConferencias(ui) {
+  if (nfeState.user?.perfil !== 'ADM') return;
+  const { data, error } = await supabaseClient
+    .from('wmss_conferencias')
+    .select('*, wmss_notas(numero_nota), wmss_users(matricula)')
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) return;
+  ui.admConferenciasBody.innerHTML = (data || []).map((row) => `
+    <tr>
+      <td>${new Date(row.created_at).toLocaleString('pt-BR')}</td>
+      <td>${row.wmss_notas?.numero_nota || '-'}</td>
+      <td>${row.wmss_users?.matricula || '-'}</td>
+      <td>${row.status}</td>
+      <td>${row.observacao || '-'}</td>
+    </tr>
+  `).join('');
+}
+
+function nfeApplyRoleUI(ui) {
+  const role = nfeState.user?.perfil;
+  ui.logoutBtn.classList.toggle('hidden', !role);
+  ui.chatToggleBtn.classList.toggle('hidden', !role);
+  ui.admSection.classList.toggle('hidden', role !== 'ADM');
+  ui.operacaoSection.classList.toggle('hidden', role !== 'OPERACAO');
+  ui.legacyApp.classList.add('hidden');
+  ui.sessionInfo.textContent = role ? `Logado: ${nfeState.user.matricula} (${role})` : 'Não autenticado';
+}
+
+async function nfeLoadChats(ui) {
+  if (!nfeState.user) return;
+  const { data } = await supabaseClient
+    .from('wmss_chat_messages')
+    .select('*, sender:wmss_users!wmss_chat_messages_from_user_id_fkey(matricula), recipient:wmss_users!wmss_chat_messages_to_user_id_fkey(matricula)')
+    .or(`to_user_id.eq.${nfeState.user.id},from_user_id.eq.${nfeState.user.id}`)
+    .order('created_at', { ascending: true })
+    .limit(80);
+  ui.chatMessages.innerHTML = (data || []).map((m) => `<div><strong>${m.sender?.matricula || 'Sistema'}:</strong> ${m.mensagem}</div>`).join('');
+  ui.chatMessages.scrollTop = ui.chatMessages.scrollHeight;
+}
+
+function setupNfeModule() {
+  const ui = getNfeEls();
+  if (!ui.authSection) return;
+  nfeApplyRoleUI(ui);
+
+  ui.registerForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const fd = new FormData(ui.registerForm);
+    const payload = {
+      matricula: String(fd.get('matricula') || '').trim(),
+      senha: String(fd.get('senha') || ''),
+      email: String(fd.get('email') || '').trim() || null,
+      telefone: String(fd.get('telefone') || '').trim() || null,
+      perfil: String(fd.get('perfil') || 'OPERACAO')
+    };
+    if (!payload.matricula || !payload.senha) return showFeedback('Informe matrícula e senha.', 'error');
+    const { error } = await supabaseClient.from('wmss_users').insert(payload);
+    if (error) return showFeedback(`Erro no cadastro: ${error.message}`, 'error');
+    showFeedback('Usuário cadastrado.');
+    ui.registerForm.reset();
+  });
+
+  ui.loginForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const fd = new FormData(ui.loginForm);
+    const matricula = String(fd.get('matricula') || '').trim();
+    const senha = String(fd.get('senha') || '');
+    const { data, error } = await supabaseClient.from('wmss_users').select('*').eq('matricula', matricula).eq('senha', senha).maybeSingle();
+    if (error || !data) return showFeedback('Matrícula/senha inválidas.', 'error');
+    nfeState.user = data;
+    storageSet('wmss_session_user', JSON.stringify(data));
+    nfeApplyRoleUI(ui);
+    await nfeLoadNotas(ui);
+    await nfeLoadLogs(ui);
+    await nfeLoadConferencias(ui);
+    await nfeLoadChats(ui);
+  });
+
+  ui.logoutBtn?.addEventListener('click', () => {
+    nfeState.user = null;
+    storageSet('wmss_session_user', '');
+    nfeApplyRoleUI(ui);
+  });
+
+  ui.recoverBtn?.addEventListener('click', async () => {
+    const matricula = String(new FormData(ui.loginForm).get('matricula') || '').trim();
+    if (!matricula) return showFeedback('Informe a matrícula para recuperar senha.', 'error');
+    const { data: user } = await supabaseClient.from('wmss_users').select('*').eq('matricula', matricula).maybeSingle();
+    if (!user) return showFeedback('Usuário não encontrado.', 'error');
+    const novaSenha = Math.random().toString(36).slice(-8);
+    await supabaseClient.from('wmss_users').update({ senha: novaSenha }).eq('id', user.id);
+    const via = ui.recoverMode.value === 'sms' ? `SMS para ${user.telefone || 'telefone não cadastrado'}` : `email para ${user.email || 'email não cadastrado'}`;
+    showFeedback(`Nova senha gerada (${novaSenha}) e enviada via ${via}.`, 'success');
+  });
+
+  ui.nfeUploadForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (nfeState.user?.perfil !== 'ADM') return showFeedback('Apenas ADM pode publicar nota.', 'error');
+    const file = ui.nfeXmlFile.files?.[0];
+    if (!file) return showFeedback('Selecione um XML.', 'error');
+    const xml = await file.text();
+    const parsed = parseNfeXml(xml);
+    const notaPayload = {
+      chave_nfe: parsed.chave,
+      numero_nota: parsed.numero,
+      motorista: ui.motoristaInput.value.trim(),
+      telefone_motorista: ui.telefoneMotoristaInput.value.trim(),
+      placa: ui.placaInput.value.trim().toUpperCase(),
+      xml_raw: xml,
+      publicado_por: nfeState.user.id
+    };
+    const { data: nota, error } = await supabaseClient.from('wmss_notas').upsert(notaPayload, { onConflict: 'chave_nfe' }).select('*').single();
+    if (error) return showFeedback(`Erro ao publicar nota: ${error.message}`, 'error');
+    await supabaseClient.from('wmss_nota_itens').delete().eq('nota_id', nota.id);
+    await supabaseClient.from('wmss_nota_itens').insert(parsed.itens.map((i) => ({ nota_id: nota.id, codigo: i.codigo, descricao: i.descricao, quantidade_esperada: i.qtd_fardos })));
+    showFeedback('Nota publicada para conferência.');
+    ui.nfeUploadForm.reset();
+    await nfeLoadNotas(ui);
+  });
+
+  ui.notaSelect?.addEventListener('change', () => nfeLoadOperacaoItens(ui));
+  ui.conferenciaForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (nfeState.user?.perfil !== 'OPERACAO') return showFeedback('Apenas operação pode conferir.', 'error');
+    const notaId = ui.notaSelect.value;
+    if (!notaId) return showFeedback('Selecione uma nota.', 'error');
+    const inputs = [...ui.operacaoItensBody.querySelectorAll('input[data-codigo]')];
+    const itens = inputs.map((input) => {
+      const esperado = Number(nfeState.notaItens.find((x) => x.codigo === input.dataset.codigo)?.quantidade_esperada || 0);
+      const informado = Number(input.value || 0);
+      return { codigo: input.dataset.codigo, esperado, informado, divergencia: esperado !== informado };
+    });
+    const divergencias = itens.filter((x) => x.divergencia);
+    if (divergencias.length && !window.confirm(`Há divergência em ${divergencias.length} item(ns). Deseja finalizar mesmo assim?`)) return;
+    const status = divergencias.length ? 'COM_DIVERGENCIA' : 'OK';
+    const { data: conf, error } = await supabaseClient.from('wmss_conferencias').insert({
+      nota_id: notaId,
+      user_id: nfeState.user.id,
+      status,
+      observacao: ui.conferenciaObs.value.trim() || null
+    }).select('*').single();
+    if (error) return showFeedback(`Erro ao salvar conferência: ${error.message}`, 'error');
+    await supabaseClient.from('wmss_conferencia_itens').insert(itens.map((i) => ({ conferencia_id: conf.id, codigo: i.codigo, quantidade_esperada: i.esperado, quantidade_informada: i.informado, divergencia: i.divergencia })));
+    const logsPayload = itens.map((i) => ({ user_id: nfeState.user.id, nota_id: notaId, codigo: i.codigo, quantidade_esperada: i.esperado, quantidade_informada: i.informado, divergencia: i.divergencia, tipo: 'CONFERENCIA' }));
+    await supabaseClient.from('wmss_logs').insert(logsPayload);
+    showFeedback(status === 'OK' ? 'Conferência enviada sem divergências.' : 'Conferência enviada com divergências.');
+    ui.conferenciaForm.reset();
+    await nfeLoadOperacaoItens(ui);
+  });
+
+  ui.exportLogsBtn?.addEventListener('click', async () => {
+    const { data } = await supabaseClient.from('wmss_logs').select('*').order('created_at', { ascending: false });
+    exportWorkbook('logs_conferencia.xlsx', [{ name: 'Logs', data: data || [] }]);
+  });
+  ui.clearLogsBtn?.addEventListener('click', async () => {
+    if (!window.confirm('Apagar todos os logs?')) return;
+    await supabaseClient.from('wmss_logs').delete().neq('id', '');
+    await nfeLoadLogs(ui);
+  });
+
+  ui.chatToggleBtn?.addEventListener('click', () => ui.chatBox.classList.toggle('hidden'));
+  ui.chatForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const text = ui.chatInput.value.trim();
+    if (!text || !nfeState.user) return;
+    await supabaseClient.from('wmss_chat_messages').insert({
+      from_user_id: nfeState.user.id,
+      to_role: nfeState.user.perfil === 'ADM' ? 'OPERACAO' : 'ADM',
+      mensagem: text
+    });
+    ui.chatInput.value = '';
+    await nfeLoadChats(ui);
+  });
+
+  const persisted = storageGetJSON('wmss_session_user', null);
+  if (persisted?.id) {
+    nfeState.user = persisted;
+    nfeApplyRoleUI(ui);
+    nfeLoadNotas(ui);
+    nfeLoadLogs(ui);
+    nfeLoadConferencias(ui);
+    nfeLoadChats(ui);
+  }
+  nfeState.chatTimer = window.setInterval(() => {
+    nfeLoadChats(ui);
+    nfeLoadLogs(ui);
+    nfeLoadConferencias(ui);
+  }, 10000);
+}
+
 function init() {
   setupTabs();
   setupExports();
@@ -2252,6 +2539,7 @@ function init() {
     showFeedback(enabled ? 'Auto planilha ativado.' : 'Auto planilha desativado.');
   });
   createClient();
+  setupNfeModule();
 }
 
 init();
