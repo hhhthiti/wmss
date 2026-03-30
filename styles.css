@@ -216,6 +216,33 @@ th, td {
 }
 
 .hidden { display: none !important; }
+.danger-row { background: #ffd9d9; }
+.chat-toggle {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1200;
+  border-radius: 999px;
+}
+.chat-box {
+  position: fixed;
+  right: 20px;
+  bottom: 80px;
+  width: 320px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem;
+  z-index: 1200;
+}
+.chat-messages {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--table-border);
+  border-radius: 8px;
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+}
 
 .layout-grid {
   overflow: auto;

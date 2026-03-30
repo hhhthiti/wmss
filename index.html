@@ -18,7 +18,110 @@
     </header>
 
     <main>
-      
+      <section id="authSection" class="card">
+        <h2>Acesso do Sistema</h2>
+        <div class="grid two-col">
+          <form id="registerForm" class="grid">
+            <h3>Cadastro</h3>
+            <label>Matrícula <input name="matricula" required /></label>
+            <label>Senha <input name="senha" type="password" required /></label>
+            <label>Email <input name="email" type="email" /></label>
+            <label>Telefone (SMS) <input name="telefone" placeholder="5511999999999" /></label>
+            <label>Perfil
+              <select name="perfil" required>
+                <option value="ADM">ADM</option>
+                <option value="OPERACAO">OPERAÇÃO</option>
+              </select>
+            </label>
+            <button type="submit">Cadastrar usuário</button>
+          </form>
+          <form id="loginForm" class="grid">
+            <h3>Login</h3>
+            <label>Matrícula <input name="matricula" required /></label>
+            <label>Senha <input name="senha" type="password" required /></label>
+            <button type="submit">Entrar</button>
+            <label>Recuperar senha por
+              <select id="recoverMode">
+                <option value="email">Email</option>
+                <option value="sms">SMS</option>
+              </select>
+            </label>
+            <button id="recoverBtn" type="button" class="secondary">Recuperar senha</button>
+          </form>
+        </div>
+        <div class="actions">
+          <strong id="sessionInfo"></strong>
+          <button id="logoutBtn" type="button" class="danger hidden">Sair</button>
+        </div>
+      </section>
+
+      <section id="admSection" class="hidden">
+        <div class="card">
+          <h2>Tela ADM - Publicar Nota XML</h2>
+          <form id="nfeUploadForm" class="grid two-col">
+            <label>XML da NF-e <input id="nfeXmlFile" type="file" accept=".xml" required /></label>
+            <label>Motorista <input id="motoristaInput" required /></label>
+            <label>Telefone do motorista <input id="telefoneMotoristaInput" required /></label>
+            <label>Placa <input id="placaInput" required /></label>
+            <div class="actions"><button type="submit">Publicar nota para conferência</button></div>
+          </form>
+          <p class="helper-text">Ao publicar, a nota fica disponível para a operação em conferência cega.</p>
+        </div>
+        <div class="card">
+          <h2>Conferências recebidas</h2>
+          <div class="table-wrapper">
+            <table id="admConferenciasTable">
+              <thead><tr><th>Data</th><th>Nota</th><th>Conferente</th><th>Status</th><th>Observação</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Logs</h2>
+          <div class="actions">
+            <button id="exportLogsBtn" type="button" class="secondary">Exportar logs</button>
+            <button id="clearLogsBtn" type="button" class="danger">Apagar logs</button>
+          </div>
+          <div class="table-wrapper">
+            <table id="logsTable">
+              <thead><tr><th>Horário</th><th>Usuário</th><th>Código</th><th>Esperado</th><th>Informado</th><th>Divergência</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="operacaoSection" class="hidden">
+        <div class="card">
+          <h2>Tela Operação - Conferência Cega</h2>
+          <label>Selecionar nota
+            <select id="notaSelect"></select>
+          </label>
+          <div id="notaHeaderInfo" class="helper-text"></div>
+          <form id="conferenciaForm" class="grid">
+            <div class="table-wrapper">
+              <table id="operacaoItensTable">
+                <thead><tr><th>Código</th><th>Descrição</th><th>Qtd informada (fardos)</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <label>Observação (se enviar com divergência) <textarea id="conferenciaObs" rows="3"></textarea></label>
+            <div class="actions"><button type="submit">Enviar conferência</button></div>
+          </form>
+        </div>
+      </section>
+
+      <button id="chatToggleBtn" class="chat-toggle hidden" type="button">💬 Chat</button>
+      <div id="chatBox" class="chat-box hidden">
+        <h3>Chat interno</h3>
+        <div id="chatMessages" class="chat-messages"></div>
+        <form id="chatForm" class="grid">
+          <input id="chatInput" placeholder="Digite sua mensagem..." required />
+          <button type="submit">Enviar</button>
+        </form>
+      </div>
+
+      <div id="legacyApp">
 
       <nav class="tabs">
         <button class="tab-btn active" data-tab="cadastro">Cadastro</button>
@@ -402,6 +505,7 @@ A01	20104409	PA	30	"></textarea>
       </div>
 
       <p id="feedback" class="status"></p>
+      </div>
     </main>
 
     <script src="app.js"></script>

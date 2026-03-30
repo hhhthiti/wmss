@@ -9,6 +9,31 @@ Aplicação web simples (HTML/CSS/JS) para operar com Supabase e gerenciar:
 - Importação de planilha Excel/CSV para **incluir/atualizar/apagar** posições em lote.
 - Exportação em planilha (XLSX) no fim de cada seção.
 
+## Módulo novo: NF-e + Conferência cega por perfil
+
+Foi adicionado um módulo completo para o fluxo solicitado:
+
+- cadastro/login por **matrícula** com perfil `ADM` ou `OPERACAO`,
+- recuperação de senha (fluxo interno) por `email` ou `sms`,
+- tela exclusiva de ADM para upload XML + publicação de nota,
+- tela exclusiva de Operação para conferência cega (sem mostrar quantidade esperada),
+- geração de logs por item com divergência em vermelho,
+- exportar/apagar logs,
+- chat interno em bolha flutuante (ADM x Operação).
+
+### Credenciais Supabase configuradas no front
+
+- URL: `https://qkdonbbvafdbooyjjmwb.supabase.co`
+- Publishable key: `sb_publishable_JYiZBz-B3k7pdY3Ivobn0w_Jz7zIWNx`
+
+### SQL para criar tabelas do módulo
+
+Execute no SQL Editor:
+
+- `supabase/schema_nfe_conferencia.sql`
+
+> Observação: envio real de SMS/email depende de integração externa (Twilio/Resend etc). O fluxo atual gera nova senha e registra como “enviado” no sistema.
+
 ## Como rodar o front
 
 Abra o `index.html` no navegador **ou** sirva com:
