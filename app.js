@@ -32,6 +32,10 @@ function storageGetJSON(key, fallback) {
   }
 }
 
+function storageSetJSON(key, value) {
+  return storageSet(key, JSON.stringify(value));
+}
+
 
 const el = {
   paleteIncompletoToggle: document.getElementById('paleteIncompletoToggle'),
@@ -62,6 +66,7 @@ const el = {
   consultaChaoBody: document.querySelector('#consultaChaoTable tbody'),
   consultaSkuAreaBody: document.querySelector('#consultaSkuAreaTable tbody'),
   consultaFilterForm: document.getElementById('consultaFilterForm'),
+  consultaRefreshBtn: document.getElementById('consultaRefreshBtn'),
   consultaDepositoFilter: document.getElementById('consultaDepositoFilter'),
   consultaSideFilter: document.getElementById('consultaSideFilter'),
   consultaSkuSearch: document.getElementById('consultaSkuSearch'),
@@ -181,6 +186,41 @@ if (el.themeToggleBtn) el.themeToggleBtn.textContent = darkModeEnabled ? '☀️
 
 
 let currentUser = null;
+const TURNO_SNAPSHOT_STORAGE_KEY = 'wmss_turno_snapshot_v2';
+
+function normalizePerfil(value) {
+  const perfil = normalizeText(value);
+  if (['MASTER', 'MESTRE'].includes(perfil)) return 'MASTER';
+  return 'COMUM';
+}
+
+function splitRowsByCentro(rows = []) {
+  return rows.reduce((acc, row) => {
+    const centro = getDepositoFromArea(row.area);
+    if (!acc[centro]) acc[centro] = [];
+    acc[centro].push(row);
+    return acc;
+  }, {});
+}
+
+function loadTurnoSnapshotFromStorage() {
+  const saved = storageGetJSON(TURNO_SNAPSHOT_STORAGE_KEY, null);
+  if (!saved || !Array.isArray(saved.rows)) return;
+  const rows = saved.rows
+    .filter((row) => row && row.area && Number(row.sku) > 0 && Number(row.paletes) >= 0)
+    .map((row) => ({
+      area: normalizeAreaCode(row.area),
+      sku: Number(row.sku),
+      tipo: normalizeText(row.tipo) || 'PL2',
+      paletes: Number(row.paletes)
+    }));
+  if (!rows.length) return;
+  turnoSnapshots = [{
+    created_at: saved.created_at || new Date().toISOString(),
+    rows,
+    centros: splitRowsByCentro(rows)
+  }];
+}
 
 function canAccessRole(requiredRole) {
   if (!requiredRole) return true;
@@ -237,7 +277,7 @@ function setupLogin() {
       return;
     }
 
-    const perfil = normalizeText(auth.perfil || 'COMUM');
+    const perfil = normalizePerfil(auth.perfil || 'COMUM');
     currentUser = {
       id: auth.usuario || user,
       role: perfil === 'MASTER' ? 'master' : 'common'
@@ -456,15 +496,16 @@ function renderUsersTable() {
   el.usersTableBody.innerHTML = '';
   cache.users.forEach((u) => {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${u.usuario}</td><td>${u.nome || ''}</td><td>${u.perfil}</td><td>${u.ativo ? 'SIM' : 'NÃO'}</td><td><button type="button" class="secondary" data-edit="${u.usuario}">Editar</button></td>`;
+    tr.innerHTML = `<td>${u.usuario}</td><td>${u.nome || ''}</td><td>${normalizePerfil(u.perfil)}</td><td>${u.ativo ? 'SIM' : 'NÃO'}</td><td><button type="button" class="secondary" data-edit="${u.usuario}">Editar</button></td>`;
     tr.querySelector('[data-edit]')?.addEventListener('click', () => {
       if (!el.userForm) return;
       el.userForm.usuario.value = u.usuario || '';
       el.userForm.nome.value = u.nome || '';
       el.userForm.senha.value = '';
-      el.userForm.perfil.value = u.perfil || 'COMUM';
+      el.userForm.perfil.value = normalizePerfil(u.perfil || 'COMUM');
       el.userForm.ativo.checked = Boolean(u.ativo);
-      setStatus(el.userStatus, `Editando usuário ${u.usuario}. Informe nova senha para atualizar.`, '');
+      el.userForm.dataset.editingUser = u.usuario || '';
+      setStatus(el.userStatus, `Editando usuário ${u.usuario}. Senha é opcional para alterar perfil/status.`, '');
     });
     el.usersTableBody.appendChild(tr);
   });
@@ -481,7 +522,7 @@ async function loadUsers() {
     .select('usuario, nome, perfil, ativo')
     .order('usuario', { ascending: true });
   if (error) throw error;
-  cache.users = data ?? [];
+  cache.users = (data ?? []).map((u) => ({ ...u, perfil: normalizePerfil(u.perfil) }));
   renderUsersTable();
 }
 
@@ -494,20 +535,36 @@ async function handleUserSubmit(event) {
   const usuario = normalizeText(formData.get('usuario'));
   const nome = String(formData.get('nome') || '').trim();
   const senha = String(formData.get('senha') || '').trim();
-  const perfil = normalizeText(formData.get('perfil') || 'COMUM');
+  const perfil = normalizePerfil(formData.get('perfil') || 'COMUM');
   const ativo = formData.get('ativo') === 'on';
+  const editingUser = normalizeText(event.target.dataset.editingUser || '');
+  const isEditing = Boolean(editingUser && editingUser === usuario);
 
-  if (!usuario || !senha) return setStatus(el.userStatus, 'Informe usuário e senha.', 'error');
+  if (!usuario) return setStatus(el.userStatus, 'Informe usuário.', 'error');
+  if (!senha && !isEditing) return setStatus(el.userStatus, 'Informe senha para novo usuário.', 'error');
   if (!['MASTER', 'COMUM'].includes(perfil)) return setStatus(el.userStatus, 'Perfil inválido.', 'error');
 
-  const payload = { usuario, nome, senha, perfil, ativo };
+  const payload = { usuario, nome, perfil, ativo };
+  if (senha) payload.senha = senha;
+
   try {
-    const { error } = await supabaseClient
-      .from('wmss_users')
-      .upsert(payload, { onConflict: 'usuario' });
-    if (error) throw error;
+    const perfilCandidates = perfil === 'MASTER' ? ['MASTER', 'MESTRE'] : ['COMUM'];
+    let lastError = null;
+    for (const perfilCandidate of perfilCandidates) {
+      const { error } = await supabaseClient
+        .from('wmss_users')
+        .upsert({ ...payload, perfil: perfilCandidate }, { onConflict: 'usuario' });
+      if (!error) {
+        lastError = null;
+        break;
+      }
+      lastError = error;
+      if (!String(error.message || '').includes('wmss_users_perfil_check')) break;
+    }
+    if (lastError) throw lastError;
     event.target.reset();
     if (event.target.ativo) event.target.ativo.checked = true;
+    delete event.target.dataset.editingUser;
     await loadUsers();
     setStatus(el.userStatus, 'Usuário salvo com sucesso.', 'success');
   } catch (error) {
@@ -1697,8 +1754,7 @@ function setupContagem() {
   el.contagemApplyBtn?.addEventListener('click', applyContagemToConsulta);
   el.contagemForm?.addEventListener('submit', (event) => {
     event.preventDefault();
-    renderContagemTable();
-    setStatus(el.contagemStatus, 'Cálculo atualizado.', 'success');
+    applyContagemToConsulta();
   });
   el.contagemExportBtn?.addEventListener('click', exportContagemExcel);
 }
@@ -1845,10 +1901,12 @@ function consolidarPorChave(rows) {
 function saveTurnoSnapshot(snapshotRows) {
   const item = {
     created_at: new Date().toISOString(),
-    rows: snapshotRows
+    rows: snapshotRows,
+    centros: splitRowsByCentro(snapshotRows)
   };
 
-  turnoSnapshots = [item, ...turnoSnapshots].slice(0, 3);
+  turnoSnapshots = [item];
+  storageSetJSON(TURNO_SNAPSHOT_STORAGE_KEY, item);
   renderTurnoHistory();
 }
 
@@ -1856,18 +1914,20 @@ function renderTurnoHistory() {
   if (!el.turnoHistoryBody) return;
   el.turnoHistoryBody.innerHTML = '';
 
-  if (!turnoSnapshots.length) {
+  const latest = turnoSnapshots[0];
+  if (!latest) {
     const tr = document.createElement('tr');
     tr.innerHTML = '<td colspan="2">Sem snapshots salvos.</td>';
     el.turnoHistoryBody.appendChild(tr);
     return;
   }
 
-  turnoSnapshots.forEach((snap) => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${new Date(snap.created_at).toLocaleString('pt-BR')}</td><td>${snap.rows.length}</td>`;
-    el.turnoHistoryBody.appendChild(tr);
-  });
+  const resumoCentros = Object.entries(latest.centros || {})
+    .map(([centro, rows]) => `${centro}: ${rows.length}`)
+    .join(' | ');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td>${new Date(latest.created_at).toLocaleString('pt-BR')}</td><td>${latest.rows.length}${resumoCentros ? ` (${resumoCentros})` : ''}</td>`;
+  el.turnoHistoryBody.appendChild(tr);
 }
 
 async function handleTurnoSubmit(event) {
@@ -2522,6 +2582,10 @@ function setupConsulta() {
   el.mapaAreaSelect?.addEventListener('change', renderConsultaMapaHint);
   el.mapaPosicaoInput?.addEventListener('input', renderConsultaMapaHint);
   el.exportConsultaResumoPdfBtn?.addEventListener('click', exportConsultaResumoPDF);
+  el.consultaRefreshBtn?.addEventListener('click', async () => {
+    await loadAll();
+    showFeedback('Consulta atualizada sem recarregar a página.');
+  });
   document.querySelectorAll('.consulta-subnav-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.consulta-subnav-btn').forEach((b) => b.classList.remove('active'));
@@ -2553,6 +2617,7 @@ function init() {
   setupPlanejamento();
   setupOcupacao();
   setupContagem();
+  loadTurnoSnapshotFromStorage();
   renderTurnoHistory();
   el.turnoForm?.addEventListener('submit', handleTurnoSubmit);
   el.exportTurnoExcelBtn?.addEventListener('click', exportTurnoResultadoExcel);
