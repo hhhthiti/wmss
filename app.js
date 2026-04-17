@@ -101,6 +101,16 @@ const el = {
   contagemStatus: document.getElementById('contagemStatus'),
   contagemBody: document.querySelector('#contagemTable tbody'),
   contagemResumoBody: document.querySelector('#contagemResumoTable tbody'),
+  mb51Form: document.getElementById('mb51Form'),
+  mb51File: document.getElementById('mb51File'),
+  mb51Status: document.getElementById('mb51Status'),
+  mb51TableBody: document.querySelector('#mb51Table tbody'),
+  mb51Centro1110Btn: document.getElementById('mb51Centro1110Btn'),
+  mb51Centro1111Btn: document.getElementById('mb51Centro1111Btn'),
+  mb52Form: document.getElementById('mb52Form'),
+  mb52File: document.getElementById('mb52File'),
+  mb52Status: document.getElementById('mb52Status'),
+  mb52TableBody: document.querySelector('#mb52Table tbody'),
   turnoForm: document.getElementById('turnoForm'),
   turnoFile: document.getElementById('turnoFile'),
   turnoStatus: document.getElementById('turnoStatus'),
@@ -131,6 +141,8 @@ let turnoSnapshots = [];
 let lastTurnoResultado = [];
 let turnoUltimaPlanilhaSku = {};
 let contagemMap = {};
+let mb51Snapshot = [];
+let selectedMb51Centro = '';
 
 const manualOcupados = new Set([
   'A14', 'A15', 'A16', 'A17', 'A18', 'A19',
@@ -186,7 +198,11 @@ function canAccessRole(requiredRole) {
   if (!requiredRole) return true;
   if (!currentUser) return false;
   if (currentUser.role === 'master') return true;
-  return requiredRole === 'common';
+  const allowed = String(requiredRole)
+    .split(/[,\s]+/)
+    .map((value) => normalizeText(value).toLowerCase())
+    .filter(Boolean);
+  return allowed.includes(currentUser.role);
 }
 
 function applyRoleVisibility() {
@@ -240,9 +256,12 @@ function setupLogin() {
     const perfil = normalizeText(auth.perfil || 'COMUM');
     currentUser = {
       id: auth.usuario || user,
-      role: perfil === 'MASTER' ? 'master' : 'common'
+      role: perfil === 'MASTER' ? 'master' : (perfil === 'ANALISTA' ? 'analyst' : 'common')
     };
-    setStatus(el.loginStatus, currentUser.role === 'master' ? 'Login mestre ativo.' : `Login usuário ativo (${currentUser.id}).`, 'success');
+    const roleLabel = currentUser.role === 'master'
+      ? 'mestre'
+      : (currentUser.role === 'analyst' ? 'analista' : 'usuário');
+    setStatus(el.loginStatus, `Login ${roleLabel} ativo (${currentUser.id}).`, 'success');
     applyRoleVisibility();
     loadUsers().catch((err) => setStatus(el.userStatus, `Erro ao carregar usuários: ${err.message}`, 'error'));
   });
@@ -318,6 +337,97 @@ function parseIncomingForecastRows(rows) {
       };
     })
     .filter((item) => Number.isFinite(item.sku) && Number.isFinite(item.paletes) && item.paletes > 0);
+}
+
+function normalizeHeaderKey(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[._-]+/g, ' ')
+    .toLowerCase()
+    .trim();
+}
+
+function toNumberFlexible(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
+  const raw = String(value ?? '').trim().replace(/\./g, '').replace(',', '.');
+  if (!raw) return NaN;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : NaN;
+}
+
+function normalizeMaterialCode(value) {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  if (!digits) return '';
+  const noLeadingZero = digits.replace(/^0+/, '');
+  return noLeadingZero || '0';
+}
+
+function formatFardos(value) {
+  const quantity = Number(value || 0);
+  return `${quantity.toLocaleString('pt-BR')} fardos`;
+}
+
+function mapMb51Row(rawRow) {
+  const row = Object.fromEntries(
+    Object.entries(rawRow || {}).map(([k, v]) => [normalizeHeaderKey(k), v])
+  );
+  const material = normalizeMaterialCode(row.material);
+  const descricao = String(row['texto breve material'] ?? row.descricao ?? '').trim();
+  const centro = normalizeText(row.centro);
+  const utilizacaoLivre = toNumberFlexible(row['utilizacao livre'] ?? row['utilização livre']);
+  return { material, descricao, centro, utilizacaoLivre };
+}
+
+function saveMb51Snapshot(rows) {
+  mb51Snapshot = rows;
+  storageSet('wmss_mb51_snapshot', JSON.stringify(rows));
+}
+
+function loadMb51Snapshot() {
+  const saved = storageGetJSON('wmss_mb51_snapshot', []);
+  mb51Snapshot = Array.isArray(saved) ? saved : [];
+}
+
+function renderMb51Table(centro) {
+  if (!el.mb51TableBody) return;
+  selectedMb51Centro = centro;
+  el.mb51TableBody.innerHTML = '';
+  const filtered = mb51Snapshot
+    .filter((row) => row.centro === centro && row.material)
+    .sort((a, b) => a.material.localeCompare(b.material, 'pt-BR', { numeric: true }));
+
+  if (!filtered.length) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td colspan="4">Nenhum material encontrado para o centro ${centro}.</td>`;
+    el.mb51TableBody.appendChild(tr);
+    return;
+  }
+
+  filtered.forEach((row) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${row.centro}</td>
+      <td>${row.material}</td>
+      <td>${row.descricao || '-'}</td>
+      <td>${formatFardos(row.utilizacaoLivre)}</td>
+    `;
+    el.mb51TableBody.appendChild(tr);
+  });
+}
+
+function getContagemTotalsBySku() {
+  const totals = {};
+  Object.values(contagemMap || {}).forEach((entries) => {
+    (entries || []).forEach((entry) => {
+      const sku = normalizeMaterialCode(entry?.sku);
+      if (!sku) return;
+      const fardos = Number(entry?.fardos);
+      if (!Number.isFinite(fardos) || fardos <= 0) return;
+      totals[sku] = (totals[sku] || 0) + fardos;
+    });
+  });
+  return totals;
 }
 
 function exportTurnoResultadoExcel() {
@@ -498,7 +608,7 @@ async function handleUserSubmit(event) {
   const ativo = formData.get('ativo') === 'on';
 
   if (!usuario || !senha) return setStatus(el.userStatus, 'Informe usuário e senha.', 'error');
-  if (!['MASTER', 'COMUM'].includes(perfil)) return setStatus(el.userStatus, 'Perfil inválido.', 'error');
+  if (!['MASTER', 'COMUM', 'ANALISTA'].includes(perfil)) return setStatus(el.userStatus, 'Perfil inválido.', 'error');
 
   const payload = { usuario, nome, senha, perfil, ativo };
   try {
@@ -2545,6 +2655,101 @@ function setupOcupacao() {
   });
 }
 
+async function handleMb51Submit(event) {
+  event.preventDefault();
+  const file = el.mb51File?.files?.[0];
+  if (!file) return setStatus(el.mb51Status, 'Selecione a planilha MB51.', 'error');
+
+  try {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' })
+      .map(mapMb51Row)
+      .filter((row) => ['1110', '1111'].includes(row.centro) && row.material && Number.isFinite(row.utilizacaoLivre));
+
+    if (!rows.length) {
+      setStatus(el.mb51Status, 'Nenhuma linha válida encontrada para os centros 1110/1111.', 'error');
+      return;
+    }
+
+    saveMb51Snapshot(rows);
+    const centroDefault = selectedMb51Centro || '1110';
+    renderMb51Table(centroDefault);
+    setStatus(el.mb51Status, `MB51 atualizada com ${rows.length} linha(s). Base salva para comparação em tempo real.`, 'success');
+  } catch (error) {
+    setStatus(el.mb51Status, `Erro ao processar MB51: ${error.message}`, 'error');
+  }
+}
+
+function parseMb52SkuRows(rows) {
+  return rows
+    .map((rawRow) => {
+      const row = Object.fromEntries(Object.entries(rawRow || {}).map(([k, v]) => [normalizeHeaderKey(k), v]));
+      const material = normalizeMaterialCode(row.sku ?? row.material ?? row['codigo material'] ?? row['código material']);
+      return material;
+    })
+    .filter(Boolean);
+}
+
+async function handleMb52Submit(event) {
+  event.preventDefault();
+  const file = el.mb52File?.files?.[0];
+  if (!file) return setStatus(el.mb52Status, 'Selecione a planilha de SKUs.', 'error');
+  if (!el.mb52TableBody) return;
+
+  try {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const skuList = [...new Set(parseMb52SkuRows(XLSX.utils.sheet_to_json(sheet, { defval: '' })))];
+    if (!skuList.length) {
+      setStatus(el.mb52Status, 'Nenhum SKU/Material válido encontrado na planilha.', 'error');
+      return;
+    }
+
+    const contagemTotals = getContagemTotalsBySku();
+    const mb51BySku = mb51Snapshot.reduce((acc, row) => {
+      const key = normalizeMaterialCode(row.material);
+      if (!key) return acc;
+      const current = acc[key] || { utilizacaoLivre: 0, descricao: row.descricao || '' };
+      current.utilizacaoLivre += Number(row.utilizacaoLivre || 0);
+      if (!current.descricao && row.descricao) current.descricao = row.descricao;
+      acc[key] = current;
+      return acc;
+    }, {});
+
+    el.mb52TableBody.innerHTML = '';
+    skuList.forEach((sku) => {
+      const mb51 = Number(mb51BySku[sku]?.utilizacaoLivre || 0);
+      const contagem = Number(contagemTotals[sku] || 0);
+      const diff = contagem - mb51;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${sku}</td>
+        <td>${mb51BySku[sku]?.descricao || '-'}</td>
+        <td>${formatFardos(mb51)}</td>
+        <td>${formatFardos(contagem)}</td>
+        <td>${formatFardos(diff)}</td>
+      `;
+      el.mb52TableBody.appendChild(tr);
+    });
+
+    setStatus(el.mb52Status, `Comparação concluída para ${skuList.length} SKU(s).`, 'success');
+  } catch (error) {
+    setStatus(el.mb52Status, `Erro ao processar MB52: ${error.message}`, 'error');
+  }
+}
+
+function setupMb51Mb52() {
+  loadMb51Snapshot();
+  if (mb51Snapshot.length) renderMb51Table('1110');
+  el.mb51Form?.addEventListener('submit', handleMb51Submit);
+  el.mb51Centro1110Btn?.addEventListener('click', () => renderMb51Table('1110'));
+  el.mb51Centro1111Btn?.addEventListener('click', () => renderMb51Table('1111'));
+  el.mb52Form?.addEventListener('submit', handleMb52Submit);
+}
+
 function init() {
   setupTabs();
   setupLogin();
@@ -2552,6 +2757,7 @@ function init() {
   setupConsulta();
   setupPlanejamento();
   setupOcupacao();
+  setupMb51Mb52();
   setupContagem();
   renderTurnoHistory();
   el.turnoForm?.addEventListener('submit', handleTurnoSubmit);

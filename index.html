@@ -34,6 +34,8 @@
         <button class="tab-btn" data-tab="planejamento">Planejamento</button>
         <button class="tab-btn" data-tab="ocupacao" data-role="master">Ocupação</button>
         <button class="tab-btn" data-tab="contagem">Contagem</button>
+        <button class="tab-btn" data-tab="mb51">MB51</button>
+        <button class="tab-btn" data-tab="mb52" data-role="analyst">MB52</button>
       </nav>
 
       <section id="cadastro" class="tab-content active" data-role="master">
@@ -86,6 +88,7 @@
               <select name="perfil" required>
                 <option value="COMUM">COMUM</option>
                 <option value="MASTER">MASTER</option>
+                <option value="ANALISTA">ANALISTA</option>
               </select>
             </label>
             <label class="inline-check">
@@ -364,6 +367,54 @@
           <div class="table-wrapper">
             <table id="contagemResumoTable">
               <thead><tr><th>SKU</th><th>Paletes</th><th>Fardos</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="mb51" class="tab-content">
+        <div class="card">
+          <h2>MB51 - Base de materiais por centro</h2>
+          <p class="helper-text">Suba a planilha com as colunas: Material, Texto breve material, Centro, Depósito, Em contr.qualidade, Trânsito e TE, Bloqueado, Utilização livre, Unid.medida básica, Lote e Tipo de material.</p>
+          <form id="mb51Form" class="grid form-grid">
+            <label>Planilha MB51 (.xlsx/.xls/.csv)
+              <input id="mb51File" type="file" accept=".xlsx,.xls,.csv" required />
+            </label>
+            <div class="actions">
+              <button type="submit">Processar planilha MB51</button>
+            </div>
+          </form>
+          <p id="mb51Status" class="status"></p>
+          <div class="actions">
+            <button id="mb51Centro1110Btn" type="button" class="secondary">Pesquisar centro 1110</button>
+            <button id="mb51Centro1111Btn" type="button" class="secondary">Pesquisar centro 1111</button>
+          </div>
+          <div class="table-wrapper">
+            <table id="mb51Table">
+              <thead><tr><th>Centro</th><th>Material</th><th>Texto breve material</th><th>Utilização livre</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="mb52" class="tab-content" data-role="analyst">
+        <div class="card">
+          <h2>MB52 - Comparação geral de contagens</h2>
+          <p class="helper-text">Perfil Analista: suba uma planilha com coluna SKU/Material para comparar a base MB51 versus a contagem consolidada no sistema em tempo real.</p>
+          <form id="mb52Form" class="grid form-grid">
+            <label>Planilha de SKUs (.xlsx/.xls/.csv)
+              <input id="mb52File" type="file" accept=".xlsx,.xls,.csv" required />
+            </label>
+            <div class="actions">
+              <button type="submit">Comparar SKUs</button>
+            </div>
+          </form>
+          <p id="mb52Status" class="status"></p>
+          <div class="table-wrapper">
+            <table id="mb52Table">
+              <thead><tr><th>SKU / Material</th><th>Descrição</th><th>MB51 (utilização livre)</th><th>Sistema (contagem)</th><th>Diferença</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
