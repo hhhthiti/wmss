@@ -39,8 +39,16 @@ const el = {
   loginForm: document.getElementById('loginForm'),
   loginUser: document.getElementById('loginUser'),
   loginPass: document.getElementById('loginPass'),
+  registerForm: document.getElementById('registerForm'),
+  registerUser: document.getElementById('registerUser'),
+  registerName: document.getElementById('registerName'),
+  registerPass: document.getElementById('registerPass'),
+  showLoginBtn: document.getElementById('showLoginBtn'),
+  showRegisterBtn: document.getElementById('showRegisterBtn'),
   logoutBtn: document.getElementById('logoutBtn'),
   loginStatus: document.getElementById('loginStatus'),
+  authScreen: document.getElementById('authScreen'),
+  appShell: document.getElementById('appShell'),
   connectionStatus: document.getElementById('connectionStatus'),
   feedback: document.getElementById('feedback'),
   estoqueForm: document.getElementById('estoqueForm'),
@@ -215,6 +223,20 @@ function applyRoleVisibility() {
   if (!activeVisible && visibleTabs[0]) visibleTabs[0].click();
 }
 
+function toggleAuthMode(mode = 'login') {
+  const isLogin = mode === 'login';
+  el.loginForm?.classList.toggle('hidden', !isLogin);
+  el.registerForm?.classList.toggle('hidden', isLogin);
+  el.showLoginBtn?.classList.toggle('secondary', !isLogin);
+  el.showRegisterBtn?.classList.toggle('secondary', isLogin);
+}
+
+function updateShellVisibility() {
+  const loggedIn = Boolean(currentUser);
+  el.authScreen?.classList.toggle('hidden', loggedIn);
+  el.appShell?.classList.toggle('hidden', !loggedIn);
+}
+
 async function authenticateUser(user, pass) {
   if (!user || !pass) return null;
 
@@ -238,6 +260,11 @@ async function authenticateUser(user, pass) {
 }
 
 function setupLogin() {
+  toggleAuthMode('login');
+  updateShellVisibility();
+  el.showLoginBtn?.addEventListener('click', () => toggleAuthMode('login'));
+  el.showRegisterBtn?.addEventListener('click', () => toggleAuthMode('register'));
+
   el.loginForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const user = normalizeText(el.loginUser?.value || '');
@@ -262,17 +289,48 @@ function setupLogin() {
       ? 'mestre'
       : (currentUser.role === 'analyst' ? 'analista' : 'usuário');
     setStatus(el.loginStatus, `Login ${roleLabel} ativo (${currentUser.id}).`, 'success');
+    el.loginForm?.reset();
+    el.registerForm?.reset();
+    updateShellVisibility();
     applyRoleVisibility();
     loadUsers().catch((err) => setStatus(el.userStatus, `Erro ao carregar usuários: ${err.message}`, 'error'));
   });
+
+  el.registerForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!supabaseClient) return setStatus(el.loginStatus, 'Banco não conectado.', 'error');
+    const usuario = normalizeText(el.registerUser?.value || '');
+    const nome = String(el.registerName?.value || '').trim();
+    const senha = String(el.registerPass?.value || '').trim();
+
+    if (!usuario || !senha) {
+      setStatus(el.loginStatus, 'Informe usuário e senha para registrar.', 'error');
+      return;
+    }
+
+    try {
+      const payload = { usuario, nome, senha, perfil: 'COMUM', ativo: true };
+      const { error } = await supabaseClient.from('wmss_users').insert(payload);
+      if (error) throw error;
+      setStatus(el.loginStatus, 'Registro criado com perfil COMUM. Faça login para continuar.', 'success');
+      el.registerForm?.reset();
+      toggleAuthMode('login');
+    } catch (error) {
+      setStatus(el.loginStatus, `Erro ao registrar usuário: ${error.message}`, 'error');
+    }
+  });
+
   el.logoutBtn?.addEventListener('click', () => {
     currentUser = null;
+    updateShellVisibility();
+    toggleAuthMode('login');
     setStatus(el.loginStatus, 'Sessão encerrada. Faça login para acessar as áreas.', '');
     applyRoleVisibility();
     cache.users = [];
     renderUsersTable();
   });
   applyRoleVisibility();
+  updateShellVisibility();
   setStatus(el.loginStatus, 'Faça login para continuar.', '');
 }
 

@@ -11,20 +11,44 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   </head>
   <body>
-    <header>
-      <h1>Controle de Estoque por Área</h1>
-      <p>Cadastro, consulta e expedição de produtos</p>
-      <form id="loginForm" class="actions">
-        <input id="loginUser" placeholder="Usuário" />
-        <input id="loginPass" type="password" placeholder="Senha" />
-        <button type="submit">Entrar</button>
-        <button id="logoutBtn" type="button" class="secondary">Sair</button>
-      </form>
-      <p id="loginStatus" class="status"></p>
-      <button id="themeToggleBtn" class="secondary" type="button" aria-label="Alternar modo escuro">🌙 Modo escuro</button>
-    </header>
+    <section id="authScreen" class="auth-screen">
+      <div class="card auth-card">
+        <h1>WMSS - Controle de Estoque</h1>
+        <p class="helper-text">Acesse com seu usuário para entrar no sistema.</p>
+        <div class="actions">
+          <button id="showLoginBtn" type="button">Login</button>
+          <button id="showRegisterBtn" type="button" class="secondary">Registro</button>
+        </div>
 
-    <main>
+        <form id="loginForm" class="grid form-grid">
+          <label>Usuário <input id="loginUser" placeholder="Ex.: 30152962" /></label>
+          <label>Senha <input id="loginPass" type="password" placeholder="Senha" /></label>
+          <div class="actions"><button type="submit">Entrar</button></div>
+        </form>
+
+        <form id="registerForm" class="grid form-grid hidden">
+          <label>Usuário <input id="registerUser" placeholder="Ex.: 30200001" /></label>
+          <label>Nome <input id="registerName" placeholder="Seu nome" /></label>
+          <label>Senha <input id="registerPass" type="password" placeholder="Crie uma senha" /></label>
+          <div class="actions"><button type="submit">Registrar</button></div>
+          <p class="helper-text">Novos registros são criados como perfil COMUM.</p>
+        </form>
+
+        <p id="loginStatus" class="status"></p>
+      </div>
+    </section>
+
+    <div id="appShell" class="hidden">
+      <header>
+        <h1>Controle de Estoque por Área</h1>
+        <p>Cadastro, consulta e expedição de produtos</p>
+        <div class="actions">
+          <button id="logoutBtn" type="button" class="secondary">Sair</button>
+        </div>
+        <button id="themeToggleBtn" class="secondary" type="button" aria-label="Alternar modo escuro">🌙 Modo escuro</button>
+      </header>
+
+      <main>
       
 
       <nav class="tabs">
@@ -34,7 +58,7 @@
         <button class="tab-btn" data-tab="planejamento">Planejamento</button>
         <button class="tab-btn" data-tab="ocupacao" data-role="master">Ocupação</button>
         <button class="tab-btn" data-tab="contagem">Contagem</button>
-        <button class="tab-btn" data-tab="mb51">MB51</button>
+        <button class="tab-btn" data-tab="mb51" data-role="master analyst">MB51</button>
         <button class="tab-btn" data-tab="mb52" data-role="analyst">MB52</button>
       </nav>
 
@@ -373,7 +397,7 @@
         </div>
       </section>
 
-      <section id="mb51" class="tab-content">
+      <section id="mb51" class="tab-content" data-role="master analyst">
         <div class="card">
           <h2>MB51 - Base de materiais por centro</h2>
           <p class="helper-text">Suba a planilha com as colunas: Material, Texto breve material, Centro, Depósito, Em contr.qualidade, Trânsito e TE, Bloqueado, Utilização livre, Unid.medida básica, Lote e Tipo de material.</p>
@@ -442,6 +466,7 @@
 
       <p id="feedback" class="status"></p>
     </main>
+    </div>
 
     <script src="app.js"></script>
   </body>
