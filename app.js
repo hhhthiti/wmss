@@ -113,12 +113,12 @@ const el = {
   mb51File: document.getElementById('mb51File'),
   mb51Status: document.getElementById('mb51Status'),
   mb51TableBody: document.querySelector('#mb51Table tbody'),
-  mb51Centro1110Btn: document.getElementById('mb51Centro1110Btn'),
-  mb51Centro1111Btn: document.getElementById('mb51Centro1111Btn'),
+  mb51CentrosActions: document.getElementById('mb51CentrosActions'),
   mb52Form: document.getElementById('mb52Form'),
   mb52File: document.getElementById('mb52File'),
   mb52Status: document.getElementById('mb52Status'),
   mb52TableBody: document.querySelector('#mb52Table tbody'),
+  mb52RefreshBtn: document.getElementById('mb52RefreshBtn'),
   turnoForm: document.getElementById('turnoForm'),
   turnoFile: document.getElementById('turnoFile'),
   turnoStatus: document.getElementById('turnoStatus'),
@@ -151,6 +151,8 @@ let turnoUltimaPlanilhaSku = {};
 let contagemMap = {};
 let mb51Snapshot = [];
 let selectedMb51Centro = '';
+let mb52LastSkuList = [];
+let perfilWriteMode = 'AUTO';
 
 const manualOcupados = new Set([
   'A14', 'A15', 'A16', 'A17', 'A18', 'A19',
@@ -309,8 +311,17 @@ function setupLogin() {
     }
 
     try {
-      const payload = { usuario, nome, senha, perfil: 'COMUM', ativo: true };
-      const { error } = await supabaseClient.from('wmss_users').insert(payload);
+      let error = null;
+      for (const perfilValue of ['COMUM', 'comum']) {
+        const payload = { usuario, nome, senha, perfil: perfilValue, ativo: true };
+        const result = await supabaseClient.from('wmss_users').insert(payload);
+        error = result.error || null;
+        if (!error) {
+          perfilWriteMode = perfilValue === 'COMUM' ? 'UPPER' : 'LOWER';
+          break;
+        }
+        if (!String(error.message || '').includes('wmss_users_perfil_check')) break;
+      }
       if (error) throw error;
       setStatus(el.loginStatus, 'Registro criado com perfil COMUM. Faça login para continuar.', 'success');
       el.registerForm?.reset();
@@ -447,17 +458,49 @@ function loadMb51Snapshot() {
   mb51Snapshot = Array.isArray(saved) ? saved : [];
 }
 
+
+
+function getMb51Centros() {
+  return [...new Set(mb51Snapshot
+    .map((row) => normalizeText(row.centro))
+    .filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
+}
+
+function renderMb51CenterButtons() {
+  if (!el.mb51CentrosActions) return;
+  const centros = getMb51Centros();
+  el.mb51CentrosActions.innerHTML = '';
+  if (!centros.length) {
+    const hint = document.createElement('span');
+    hint.className = 'helper-text';
+    hint.textContent = 'Sem centros carregados na base MB51.';
+    el.mb51CentrosActions.appendChild(hint);
+    return;
+  }
+
+  centros.forEach((centro) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `secondary${selectedMb51Centro === centro ? ' active' : ''}`;
+    btn.textContent = `Pesquisar centro ${centro}`;
+    btn.addEventListener('click', () => renderMb51Table(centro));
+    el.mb51CentrosActions.appendChild(btn);
+  });
+}
 function renderMb51Table(centro) {
   if (!el.mb51TableBody) return;
-  selectedMb51Centro = centro;
+  const centros = getMb51Centros();
+  const fallbackCentro = centros[0] || '';
+  selectedMb51Centro = centro || selectedMb51Centro || fallbackCentro;
+  renderMb51CenterButtons();
   el.mb51TableBody.innerHTML = '';
   const filtered = mb51Snapshot
-    .filter((row) => row.centro === centro && row.material)
+    .filter((row) => row.centro === selectedMb51Centro && row.material)
     .sort((a, b) => a.material.localeCompare(b.material, 'pt-BR', { numeric: true }));
 
   if (!filtered.length) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td colspan="4">Nenhum material encontrado para o centro ${centro}.</td>`;
+    tr.innerHTML = `<td colspan="4">Nenhum material encontrado para o centro ${selectedMb51Centro || '-' }.</td>`;
     el.mb51TableBody.appendChild(tr);
     return;
   }
@@ -630,9 +673,9 @@ function renderUsersTable() {
       el.userForm.usuario.value = u.usuario || '';
       el.userForm.nome.value = u.nome || '';
       el.userForm.senha.value = '';
-      el.userForm.perfil.value = u.perfil || 'COMUM';
+      el.userForm.perfil.value = normalizeText(u.perfil || 'COMUM');
       el.userForm.ativo.checked = Boolean(u.ativo);
-      setStatus(el.userStatus, `Editando usuário ${u.usuario}. Informe nova senha para atualizar.`, '');
+      setStatus(el.userStatus, `Editando usuário ${u.usuario}. Preencha a senha somente se quiser alterá-la.`, '');
     });
     el.usersTableBody.appendChild(tr);
   });
@@ -665,15 +708,31 @@ async function handleUserSubmit(event) {
   const perfil = normalizeText(formData.get('perfil') || 'COMUM');
   const ativo = formData.get('ativo') === 'on';
 
-  if (!usuario || !senha) return setStatus(el.userStatus, 'Informe usuário e senha.', 'error');
+  const isUpdate = cache.users.some((u) => normalizeText(u.usuario) === usuario);
+  if (!usuario || (!isUpdate && !senha)) return setStatus(el.userStatus, 'Informe usuário e senha para novo cadastro.', 'error');
   if (!['MASTER', 'COMUM', 'ANALISTA'].includes(perfil)) return setStatus(el.userStatus, 'Perfil inválido.', 'error');
 
-  const payload = { usuario, nome, senha, perfil, ativo };
+  const perfilCandidates = perfilWriteMode === 'LOWER'
+    ? [perfil.toLowerCase()]
+    : (perfilWriteMode === 'UPPER' ? [perfil] : [perfil, perfil.toLowerCase()]);
+
   try {
-    const { error } = await supabaseClient
-      .from('wmss_users')
-      .upsert(payload, { onConflict: 'usuario' });
-    if (error) throw error;
+    let lastError = null;
+    for (const perfilValue of perfilCandidates) {
+      const payload = { usuario, nome, perfil: perfilValue, ativo };
+      if (senha) payload.senha = senha;
+      const { error } = await supabaseClient
+        .from('wmss_users')
+        .upsert(payload, { onConflict: 'usuario' });
+      if (!error) {
+        perfilWriteMode = perfilValue === perfil ? 'UPPER' : 'LOWER';
+        lastError = null;
+        break;
+      }
+      lastError = error;
+      if (!String(error.message || '').includes('wmss_users_perfil_check')) break;
+    }
+    if (lastError) throw lastError;
     event.target.reset();
     if (event.target.ativo) event.target.ativo.checked = true;
     await loadUsers();
@@ -1863,10 +1922,9 @@ function setupContagem() {
     setStatus(el.contagemStatus, 'Checkboxes limpos para iniciar novo turno.', 'success');
   });
   el.contagemApplyBtn?.addEventListener('click', applyContagemToConsulta);
-  el.contagemForm?.addEventListener('submit', (event) => {
+  el.contagemForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    renderContagemTable();
-    setStatus(el.contagemStatus, 'Cálculo atualizado.', 'success');
+    await applyContagemToConsulta();
   });
   el.contagemExportBtn?.addEventListener('click', exportContagemExcel);
 }
@@ -2724,15 +2782,15 @@ async function handleMb51Submit(event) {
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' })
       .map(mapMb51Row)
-      .filter((row) => ['1110', '1111'].includes(row.centro) && row.material && Number.isFinite(row.utilizacaoLivre));
+      .filter((row) => row.centro && row.material && Number.isFinite(row.utilizacaoLivre));
 
     if (!rows.length) {
-      setStatus(el.mb51Status, 'Nenhuma linha válida encontrada para os centros 1110/1111.', 'error');
+      setStatus(el.mb51Status, 'Nenhuma linha válida encontrada com centro/material/utilização livre.', 'error');
       return;
     }
 
     saveMb51Snapshot(rows);
-    const centroDefault = selectedMb51Centro || '1110';
+    const centroDefault = selectedMb51Centro || getMb51Centros()[0] || '';
     renderMb51Table(centroDefault);
     setStatus(el.mb51Status, `MB51 atualizada com ${rows.length} linha(s). Base salva para comparação em tempo real.`, 'success');
   } catch (error) {
@@ -2750,62 +2808,75 @@ function parseMb52SkuRows(rows) {
     .filter(Boolean);
 }
 
+function renderMb52Comparison(skuList, sourceLabel = 'planilha') {
+  if (!el.mb52TableBody) return;
+  const uniqueSkus = [...new Set((skuList || []).map((sku) => normalizeMaterialCode(sku)).filter(Boolean))];
+  if (!uniqueSkus.length) {
+    setStatus(el.mb52Status, 'Nenhum SKU/Material válido encontrado para comparação.', 'error');
+    return;
+  }
+
+  const contagemTotals = getContagemTotalsBySku();
+  const mb51BySku = mb51Snapshot.reduce((acc, row) => {
+    const key = normalizeMaterialCode(row.material);
+    if (!key) return acc;
+    const current = acc[key] || { utilizacaoLivre: 0, descricao: row.descricao || '' };
+    current.utilizacaoLivre += Number(row.utilizacaoLivre || 0);
+    if (!current.descricao && row.descricao) current.descricao = row.descricao;
+    acc[key] = current;
+    return acc;
+  }, {});
+
+  el.mb52TableBody.innerHTML = '';
+  uniqueSkus.forEach((sku) => {
+    const mb51 = Number(mb51BySku[sku]?.utilizacaoLivre || 0);
+    const contagem = Number(contagemTotals[sku] || 0);
+    const diff = contagem - mb51;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${sku}</td>
+      <td>${mb51BySku[sku]?.descricao || '-'}</td>
+      <td>${formatFardos(mb51)}</td>
+      <td>${formatFardos(contagem)}</td>
+      <td>${formatFardos(diff)}</td>
+    `;
+    el.mb52TableBody.appendChild(tr);
+  });
+
+  setStatus(el.mb52Status, `Comparação concluída para ${uniqueSkus.length} SKU(s) (${sourceLabel}).`, 'success');
+}
+
 async function handleMb52Submit(event) {
   event.preventDefault();
   const file = el.mb52File?.files?.[0];
   if (!file) return setStatus(el.mb52Status, 'Selecione a planilha de SKUs.', 'error');
-  if (!el.mb52TableBody) return;
 
   try {
     const buffer = await file.arrayBuffer();
     const workbook = XLSX.read(buffer, { type: 'array' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const skuList = [...new Set(parseMb52SkuRows(XLSX.utils.sheet_to_json(sheet, { defval: '' })))];
-    if (!skuList.length) {
-      setStatus(el.mb52Status, 'Nenhum SKU/Material válido encontrado na planilha.', 'error');
-      return;
-    }
-
-    const contagemTotals = getContagemTotalsBySku();
-    const mb51BySku = mb51Snapshot.reduce((acc, row) => {
-      const key = normalizeMaterialCode(row.material);
-      if (!key) return acc;
-      const current = acc[key] || { utilizacaoLivre: 0, descricao: row.descricao || '' };
-      current.utilizacaoLivre += Number(row.utilizacaoLivre || 0);
-      if (!current.descricao && row.descricao) current.descricao = row.descricao;
-      acc[key] = current;
-      return acc;
-    }, {});
-
-    el.mb52TableBody.innerHTML = '';
-    skuList.forEach((sku) => {
-      const mb51 = Number(mb51BySku[sku]?.utilizacaoLivre || 0);
-      const contagem = Number(contagemTotals[sku] || 0);
-      const diff = contagem - mb51;
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${sku}</td>
-        <td>${mb51BySku[sku]?.descricao || '-'}</td>
-        <td>${formatFardos(mb51)}</td>
-        <td>${formatFardos(contagem)}</td>
-        <td>${formatFardos(diff)}</td>
-      `;
-      el.mb52TableBody.appendChild(tr);
-    });
-
-    setStatus(el.mb52Status, `Comparação concluída para ${skuList.length} SKU(s).`, 'success');
+    mb52LastSkuList = parseMb52SkuRows(XLSX.utils.sheet_to_json(sheet, { defval: '' }));
+    renderMb52Comparison(mb52LastSkuList, 'planilha enviada');
   } catch (error) {
     setStatus(el.mb52Status, `Erro ao processar MB52: ${error.message}`, 'error');
   }
 }
 
+function refreshMb52Comparison() {
+  if (!mb52LastSkuList.length) {
+    setStatus(el.mb52Status, 'Faça uma comparação de MB52 primeiro para habilitar o refresh.', 'error');
+    return;
+  }
+  renderMb52Comparison(mb52LastSkuList, 'refresh sem recarregar página');
+}
+
 function setupMb51Mb52() {
   loadMb51Snapshot();
-  if (mb51Snapshot.length) renderMb51Table('1110');
+  renderMb51CenterButtons();
+  if (mb51Snapshot.length) renderMb51Table(getMb51Centros()[0] || '');
   el.mb51Form?.addEventListener('submit', handleMb51Submit);
-  el.mb51Centro1110Btn?.addEventListener('click', () => renderMb51Table('1110'));
-  el.mb51Centro1111Btn?.addEventListener('click', () => renderMb51Table('1111'));
   el.mb52Form?.addEventListener('submit', handleMb52Submit);
+  el.mb52RefreshBtn?.addEventListener('click', refreshMb52Comparison);
 }
 
 function init() {
