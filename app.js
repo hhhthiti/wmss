@@ -54,6 +54,7 @@ const el = {
   estoqueForm: document.getElementById('estoqueForm'),
   produtoForm: document.getElementById('produtoForm'),
   userForm: document.getElementById('userForm'),
+  openLogsBtn: document.getElementById('openLogsBtn'),
   userStatus: document.getElementById('userStatus'),
   usersTableBody: document.querySelector('#usersTable tbody'),
   expedicaoForm: document.getElementById('expedicaoForm'),
@@ -102,6 +103,7 @@ const el = {
   contagemImportBtn: document.getElementById('contagemImportBtn'),
   contagemClearChecksBtn: document.getElementById('contagemClearChecksBtn'),
   contagemApplyBtn: document.getElementById('contagemApplyBtn'),
+  contagemDeleteDbBtn: document.getElementById('contagemDeleteDbBtn'),
   contagemFile: document.getElementById('contagemFile'),
   contagemImportResetToggle: document.getElementById('contagemImportResetToggle'),
   turnoCarryScopes: () => Array.from(document.querySelectorAll('.turno-carry-scope:checked')).map((n) => n.value),
@@ -109,6 +111,8 @@ const el = {
   contagemStatus: document.getElementById('contagemStatus'),
   contagemBody: document.querySelector('#contagemTable tbody'),
   contagemResumoBody: document.querySelector('#contagemResumoTable tbody'),
+  logsBackBtn: document.getElementById('logsBackBtn'),
+  logsTableBody: document.querySelector('#logsTable tbody'),
   mb51Status: document.getElementById('mb51Status'),
   mb51TableBody: document.querySelector('#mb51Table tbody'),
   mb51CentrosActions: document.getElementById('mb51CentrosActions'),
@@ -152,6 +156,7 @@ let selectedMb51Centro = '';
 let mb52LastSkuList = [];
 let perfilWriteMode = 'AUTO';
 let perfilValuesFromDb = new Set();
+let contagemUploadLogs = storageGetJSON('wmss_contagem_upload_logs', []);
 
 const manualOcupados = new Set([
   'A14', 'A15', 'A16', 'A17', 'A18', 'A19',
@@ -378,6 +383,65 @@ function getDbPerfilCandidates(uiPerfil) {
   if (!detected.length) return buildPerfilCandidates(normalizedTarget);
   const compatible = detected.filter((value) => normalizePerfilForUI(value) === normalizedTarget);
   return compatible.length ? compatible : buildPerfilCandidates(normalizedTarget);
+}
+
+function addContagemUploadLog(rows = []) {
+  const payloadRows = (rows || []).map((row) => ({
+    area: normalizeAreaCode(row.area),
+    sku: Number(row.sku),
+    tipo: normalizeText(row.tipo),
+    paletes: Number(row.paletes || 0)
+  })).filter((row) => row.area && row.sku && row.paletes > 0);
+
+  const entry = {
+    id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    created_at: new Date().toISOString(),
+    usuario: currentUser?.id || 'DESCONHECIDO',
+    rows: payloadRows
+  };
+  contagemUploadLogs.unshift(entry);
+  contagemUploadLogs = contagemUploadLogs.slice(0, 500);
+  storageSet('wmss_contagem_upload_logs', JSON.stringify(contagemUploadLogs));
+  renderLogsTable();
+}
+
+function exportContagemLogEntry(entryId) {
+  const entry = (contagemUploadLogs || []).find((item) => item.id === entryId);
+  if (!entry) return showFeedback('Log não encontrado.', 'error');
+  const rows = (entry.rows || []).map((row) => ({
+    data_hora: entry.created_at,
+    usuario: entry.usuario,
+    area: row.area,
+    sku: row.sku,
+    tipo: row.tipo,
+    paletes: row.paletes
+  }));
+  if (!rows.length) return showFeedback('Esse log não possui linhas para exportar.', 'error');
+  exportWorkbook(`contagem_${entry.usuario}_${entry.created_at.replace(/[:.]/g, '-')}.xlsx`, [
+    { name: 'Contagem', data: rows }
+  ]);
+}
+
+function renderLogsTable() {
+  if (!el.logsTableBody) return;
+  el.logsTableBody.innerHTML = '';
+  (contagemUploadLogs || []).forEach((entry) => {
+    const tr = document.createElement('tr');
+    const created = new Date(entry.created_at);
+    tr.innerHTML = `
+      <td>${Number.isNaN(created.getTime()) ? entry.created_at : created.toLocaleString('pt-BR')}</td>
+      <td>${entry.usuario || '-'}</td>
+      <td>${(entry.rows || []).length}</td>
+      <td><button type="button" class="secondary" data-log-export="${entry.id}">Baixar cópia</button></td>
+    `;
+    tr.querySelector('[data-log-export]')?.addEventListener('click', () => exportContagemLogEntry(entry.id));
+    el.logsTableBody.appendChild(tr);
+  });
+  if (!contagemUploadLogs.length) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="4">Sem logs de contagem até o momento.</td>';
+    el.logsTableBody.appendChild(tr);
+  }
 }
 
 function normalizeAreaCode(value) {
@@ -1725,12 +1789,32 @@ async function applyContagemToConsulta() {
         .upsert(rowsToUpsert);
       if (insertError) throw insertError;
     }
+    addContagemUploadLog(rowsToUpsert);
 
     await loadAll();
     setStatus(el.contagemStatus, `Consulta substituída para ${targetAreas.length} posição(ões) da área ${scope}${side !== 'ALL' ? ` (${side})` : ''}. Confirmadas: ${confirmedRows.length}. Herdadas da conferência: ${carryRows.length}.`, 'success');
     showFeedback('Contagem aplicada na consulta com sucesso.');
   } catch (error) {
     setStatus(el.contagemStatus, `Erro ao atualizar consulta pela contagem: ${error.message}`, 'error');
+  }
+}
+
+async function clearContagemFromDatabase() {
+  if (!supabaseClient) return setStatus(el.contagemStatus, 'Banco não conectado para apagar contagem.', 'error');
+  if (!currentUser || !['master', 'analyst'].includes(currentUser.role)) {
+    return setStatus(el.contagemStatus, 'Somente mestre/analista pode apagar a contagem.', 'error');
+  }
+  const confirmed = window.confirm('Deseja realmente apagar toda a contagem salva no banco (estoque_area)?');
+  if (!confirmed) return;
+  try {
+    const { error } = await supabaseClient.from('estoque_area').delete().gt('paletes', -1);
+    if (error) throw error;
+    addContagemUploadLog([]);
+    await loadAll();
+    setStatus(el.contagemStatus, 'Contagem apagada do banco com sucesso.', 'success');
+    showFeedback('Todas as linhas de contagem foram removidas do banco.');
+  } catch (error) {
+    setStatus(el.contagemStatus, `Erro ao apagar contagem: ${error.message}`, 'error');
   }
 }
 
@@ -1955,6 +2039,7 @@ function setupContagem() {
     setStatus(el.contagemStatus, 'Checkboxes limpos para iniciar novo turno.', 'success');
   });
   el.contagemApplyBtn?.addEventListener('click', applyContagemToConsulta);
+  el.contagemDeleteDbBtn?.addEventListener('click', clearContagemFromDatabase);
   el.contagemForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     await applyContagemToConsulta();
@@ -2899,6 +2984,16 @@ function setupMb51Mb52() {
   el.mb52RefreshBtn?.addEventListener('click', refreshMb52Comparison);
 }
 
+function setupLogs() {
+  renderLogsTable();
+  el.openLogsBtn?.addEventListener('click', () => {
+    document.querySelector('.tab-btn[data-tab="logs"]')?.click();
+  });
+  el.logsBackBtn?.addEventListener('click', () => {
+    document.querySelector('.tab-btn[data-tab="cadastro"]')?.click();
+  });
+}
+
 function init() {
   setupTabs();
   setupLogin();
@@ -2907,6 +3002,7 @@ function init() {
   setupPlanejamento();
   setupOcupacao();
   setupMb51Mb52();
+  setupLogs();
   setupContagem();
   renderTurnoHistory();
   el.turnoForm?.addEventListener('submit', handleTurnoSubmit);
