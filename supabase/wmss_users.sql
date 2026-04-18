@@ -6,7 +6,7 @@ create table if not exists public.wmss_users (
   usuario text not null unique,
   senha text not null,
   nome text,
-  perfil text not null default 'COMUM' check (perfil in ('MASTER', 'COMUM')),
+  perfil text not null default 'COMUM' check (perfil in ('MASTER', 'COMUM', 'ANALISTA')),
   ativo boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
