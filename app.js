@@ -32,14 +32,26 @@ function storageGetJSON(key, fallback) {
   }
 }
 
+function storageSetJSON(key, value) {
+  return storageSet(key, JSON.stringify(value));
+}
+
 
 const el = {
   paleteIncompletoToggle: document.getElementById('paleteIncompletoToggle'),
   paleteIncompletoFields: document.getElementById('paleteIncompletoFields'),
+  loginForm: document.getElementById('loginForm'),
+  loginUser: document.getElementById('loginUser'),
+  loginPass: document.getElementById('loginPass'),
+  logoutBtn: document.getElementById('logoutBtn'),
+  loginStatus: document.getElementById('loginStatus'),
   connectionStatus: document.getElementById('connectionStatus'),
   feedback: document.getElementById('feedback'),
   estoqueForm: document.getElementById('estoqueForm'),
   produtoForm: document.getElementById('produtoForm'),
+  userForm: document.getElementById('userForm'),
+  userStatus: document.getElementById('userStatus'),
+  usersTableBody: document.querySelector('#usersTable tbody'),
   expedicaoForm: document.getElementById('expedicaoForm'),
   importForm: document.getElementById('importForm'),
   importFile: document.getElementById('importFile'),
@@ -54,8 +66,10 @@ const el = {
   consultaChaoBody: document.querySelector('#consultaChaoTable tbody'),
   consultaSkuAreaBody: document.querySelector('#consultaSkuAreaTable tbody'),
   consultaFilterForm: document.getElementById('consultaFilterForm'),
+  consultaRefreshBtn: document.getElementById('consultaRefreshBtn'),
   consultaDepositoFilter: document.getElementById('consultaDepositoFilter'),
   consultaSideFilter: document.getElementById('consultaSideFilter'),
+  consultaSkuSearch: document.getElementById('consultaSkuSearch'),
   consultaMapaBox: document.getElementById('consultaMapaBox'),
   mapaAreaSelect: document.getElementById('mapaAreaSelect'),
   mapaPosicaoInput: document.getElementById('mapaPosicaoInput'),
@@ -66,6 +80,10 @@ const el = {
   previsaoEntrada: document.getElementById('previsaoEntrada'),
   planejamentoFile: document.getElementById('planejamentoFile'),
   planejamentoResultado: document.getElementById('planejamentoResultado'),
+  planejamentoEstimateTurnoBtn: document.getElementById('planejamentoEstimateTurnoBtn'),
+  aiAssistBtn: document.getElementById('aiAssistBtn'),
+  aiAssistPrompt: document.getElementById('aiAssistPrompt'),
+  aiAssistStatus: document.getElementById('aiAssistStatus'),
   planejamentoBody: document.querySelector('#planejamentoTable tbody'),
   ocupacaoForm: document.getElementById('ocupacaoForm'),
   ocupacaoStatus: document.getElementById('ocupacaoStatus'),
@@ -79,11 +97,11 @@ const el = {
   contagemSide: document.getElementById('contagemSide'),
   contagemLoadBtn: document.getElementById('contagemLoadBtn'),
   contagemImportBtn: document.getElementById('contagemImportBtn'),
-  contagemEstimateBtn: document.getElementById('contagemEstimateBtn'),
   contagemClearChecksBtn: document.getElementById('contagemClearChecksBtn'),
   contagemApplyBtn: document.getElementById('contagemApplyBtn'),
   contagemFile: document.getElementById('contagemFile'),
   contagemImportResetToggle: document.getElementById('contagemImportResetToggle'),
+  turnoCarryScopes: () => Array.from(document.querySelectorAll('.turno-carry-scope:checked')).map((n) => n.value),
   contagemExportBtn: document.getElementById('contagemExportBtn'),
   contagemStatus: document.getElementById('contagemStatus'),
   contagemBody: document.querySelector('#contagemTable tbody'),
@@ -112,12 +130,12 @@ const el = {
 };
 
 let supabaseClient;
-let cache = { estoque: [], movimentacoes: [], produtos: [] };
+let cache = { estoque: [], movimentacoes: [], produtos: [], users: [] };
 let fracionadoMap = {};
-let turnoSnapshots = storageGetJSON('wmss_turno_snapshots', []);
+let turnoSnapshots = [];
 let lastTurnoResultado = [];
-let turnoUltimaPlanilhaSku = storageGetJSON('wmss_turno_ultima_planilha_sku', {});
-let contagemMap = storageGetJSON('wmss_contagem_map', {});
+let turnoUltimaPlanilhaSku = {};
+let contagemMap = {};
 
 const manualOcupados = new Set([
   'A14', 'A15', 'A16', 'A17', 'A18', 'A19',
@@ -158,13 +176,126 @@ const capacidadePlanejamento = {
   C: 48
 };
 
-const autoExportEnabled = storageGet('wmss_auto_export', '0') === '1';
+const autoExportEnabled = false;
 if (el.autoExportToggle) el.autoExportToggle.checked = autoExportEnabled;
-fracionadoMap = storageGetJSON('wmss_fracionado_map', {});
+fracionadoMap = {};
 
-const darkModeEnabled = storageGet('wmss_theme', 'light') === 'dark';
+const darkModeEnabled = false;
 document.body.classList.toggle('dark', darkModeEnabled);
 if (el.themeToggleBtn) el.themeToggleBtn.textContent = darkModeEnabled ? '☀️ Modo claro' : '🌙 Modo escuro';
+
+
+let currentUser = null;
+const TURNO_SNAPSHOT_STORAGE_KEY = 'wmss_turno_snapshot_v2';
+
+function normalizePerfil(value) {
+  const perfil = normalizeText(value);
+  if (['MASTER', 'MESTRE'].includes(perfil)) return 'MASTER';
+  return 'COMUM';
+}
+
+function splitRowsByCentro(rows = []) {
+  return rows.reduce((acc, row) => {
+    const centro = getDepositoFromArea(row.area);
+    if (!acc[centro]) acc[centro] = [];
+    acc[centro].push(row);
+    return acc;
+  }, {});
+}
+
+function loadTurnoSnapshotFromStorage() {
+  const saved = storageGetJSON(TURNO_SNAPSHOT_STORAGE_KEY, null);
+  if (!saved || !Array.isArray(saved.rows)) return;
+  const rows = saved.rows
+    .filter((row) => row && row.area && Number(row.sku) > 0 && Number(row.paletes) >= 0)
+    .map((row) => ({
+      area: normalizeAreaCode(row.area),
+      sku: Number(row.sku),
+      tipo: normalizeText(row.tipo) || 'PL2',
+      paletes: Number(row.paletes)
+    }));
+  if (!rows.length) return;
+  turnoSnapshots = [{
+    created_at: saved.created_at || new Date().toISOString(),
+    rows,
+    centros: splitRowsByCentro(rows)
+  }];
+}
+
+function canAccessRole(requiredRole) {
+  if (!requiredRole) return true;
+  if (!currentUser) return false;
+  if (currentUser.role === 'master') return true;
+  return requiredRole === 'common';
+}
+
+function applyRoleVisibility() {
+  document.querySelectorAll('[data-role]').forEach((node) => {
+    const role = node.getAttribute('data-role');
+    node.classList.toggle('hidden-by-role', !canAccessRole(role));
+  });
+  const visibleTabs = Array.from(document.querySelectorAll('.tab-btn')).filter((btn) => !btn.classList.contains('hidden-by-role'));
+  const activeVisible = visibleTabs.find((btn) => btn.classList.contains('active'));
+  if (!activeVisible && visibleTabs[0]) visibleTabs[0].click();
+}
+
+async function authenticateUser(user, pass) {
+  if (!user || !pass) return null;
+
+  // Fallback local para não travar operação enquanto a tabela de usuários não é criada.
+  if (user === '30152962' && pass === '123') {
+    return { usuario: user, perfil: 'MASTER', ativo: true };
+  }
+
+  if (!supabaseClient) return null;
+
+  const { data, error } = await supabaseClient
+    .from('wmss_users')
+    .select('usuario, perfil, ativo')
+    .eq('usuario', user)
+    .eq('senha', pass)
+    .eq('ativo', true)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return data;
+}
+
+function setupLogin() {
+  el.loginForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const user = normalizeText(el.loginUser?.value || '');
+    const pass = String(el.loginPass?.value || '');
+    if (!user || !pass) {
+      setStatus(el.loginStatus, 'Informe usuário e senha.', 'error');
+      return;
+    }
+
+    const auth = await authenticateUser(user, pass);
+    if (!auth) {
+      setStatus(el.loginStatus, 'Usuário/senha inválidos ou usuário inativo.', 'error');
+      return;
+    }
+
+    const perfil = normalizePerfil(auth.perfil || 'COMUM');
+    currentUser = {
+      id: auth.usuario || user,
+      role: perfil === 'MASTER' ? 'master' : 'common'
+    };
+    setStatus(el.loginStatus, currentUser.role === 'master' ? 'Login mestre ativo.' : `Login usuário ativo (${currentUser.id}).`, 'success');
+    applyRoleVisibility();
+    loadUsers().catch((err) => setStatus(el.userStatus, `Erro ao carregar usuários: ${err.message}`, 'error'));
+  });
+  el.logoutBtn?.addEventListener('click', () => {
+    currentUser = null;
+    setStatus(el.loginStatus, 'Sessão encerrada. Faça login para acessar as áreas.', '');
+    applyRoleVisibility();
+    cache.users = [];
+    renderUsersTable();
+  });
+  applyRoleVisibility();
+  setStatus(el.loginStatus, 'Faça login para continuar.', '');
+}
 
 function setStatus(target, message, type = '') {
   if (!target) return;
@@ -305,6 +436,142 @@ function renderPlanejamentoTable(ocupado, previsaoPaletes = 0) {
   }
 }
 
+
+function buildAiAssistContext() {
+  const ocupado = getPlanejamentoOcupacaoAtual();
+  const ocupacaoSetores = getPaletesResumoPorSetor();
+  const topSkus = groupTotalBySku(cache.estoque, { excludeRetrabalho: true }).slice(0, 30);
+  return {
+    capacidadePlanejamento,
+    ocupado,
+    ocupacaoSetores,
+    topSkus,
+    dataHora: new Date().toISOString()
+  };
+}
+
+async function runAiAssist() {
+  const prompt = String(el.aiAssistPrompt?.value || '').trim();
+  if (!prompt) {
+    setStatus(el.aiAssistStatus, 'Escreva uma pergunta para a IA.', 'error');
+    return;
+  }
+
+  setStatus(el.aiAssistStatus, 'Consultando IA...', '');
+  const payload = { prompt, context: buildAiAssistContext() };
+
+  try {
+    const response = await fetch(`${defaultConfig.url}/functions/v1/wmss-ai-assist`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: defaultConfig.key,
+        Authorization: `Bearer ${defaultConfig.key}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const msg = await response.text();
+      throw new Error(msg || `Falha HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    const answer = String(data?.answer || data?.resposta || '').trim();
+    if (!answer) throw new Error('Resposta vazia da função wmss-ai-assist.');
+    setStatus(el.aiAssistStatus, answer, 'success');
+  } catch (error) {
+    setStatus(
+      el.aiAssistStatus,
+      `Não foi possível consultar a IA agora. Verifique se a Edge Function "wmss-ai-assist" está publicada. Detalhe: ${error.message}`,
+      'error'
+    );
+  }
+}
+
+
+
+function renderUsersTable() {
+  if (!el.usersTableBody) return;
+  el.usersTableBody.innerHTML = '';
+  cache.users.forEach((u) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${u.usuario}</td><td>${u.nome || ''}</td><td>${normalizePerfil(u.perfil)}</td><td>${u.ativo ? 'SIM' : 'NÃO'}</td><td><button type="button" class="secondary" data-edit="${u.usuario}">Editar</button></td>`;
+    tr.querySelector('[data-edit]')?.addEventListener('click', () => {
+      if (!el.userForm) return;
+      el.userForm.usuario.value = u.usuario || '';
+      el.userForm.nome.value = u.nome || '';
+      el.userForm.senha.value = '';
+      el.userForm.perfil.value = normalizePerfil(u.perfil || 'COMUM');
+      el.userForm.ativo.checked = Boolean(u.ativo);
+      el.userForm.dataset.editingUser = u.usuario || '';
+      setStatus(el.userStatus, `Editando usuário ${u.usuario}. Senha é opcional para alterar perfil/status.`, '');
+    });
+    el.usersTableBody.appendChild(tr);
+  });
+}
+
+async function loadUsers() {
+  if (!supabaseClient || !currentUser || currentUser.role !== 'master') {
+    cache.users = [];
+    renderUsersTable();
+    return;
+  }
+  const { data, error } = await supabaseClient
+    .from('wmss_users')
+    .select('usuario, nome, perfil, ativo')
+    .order('usuario', { ascending: true });
+  if (error) throw error;
+  cache.users = (data ?? []).map((u) => ({ ...u, perfil: normalizePerfil(u.perfil) }));
+  renderUsersTable();
+}
+
+async function handleUserSubmit(event) {
+  event.preventDefault();
+  if (!supabaseClient) return setStatus(el.userStatus, 'Banco não conectado.', 'error');
+  if (!currentUser || currentUser.role !== 'master') return setStatus(el.userStatus, 'Somente mestre pode cadastrar usuários.', 'error');
+
+  const formData = new FormData(event.target);
+  const usuario = normalizeText(formData.get('usuario'));
+  const nome = String(formData.get('nome') || '').trim();
+  const senha = String(formData.get('senha') || '').trim();
+  const perfil = normalizePerfil(formData.get('perfil') || 'COMUM');
+  const ativo = formData.get('ativo') === 'on';
+  const editingUser = normalizeText(event.target.dataset.editingUser || '');
+  const isEditing = Boolean(editingUser && editingUser === usuario);
+
+  if (!usuario) return setStatus(el.userStatus, 'Informe usuário.', 'error');
+  if (!senha && !isEditing) return setStatus(el.userStatus, 'Informe senha para novo usuário.', 'error');
+  if (!['MASTER', 'COMUM'].includes(perfil)) return setStatus(el.userStatus, 'Perfil inválido.', 'error');
+
+  const payload = { usuario, nome, perfil, ativo };
+  if (senha) payload.senha = senha;
+
+  try {
+    const perfilCandidates = perfil === 'MASTER' ? ['MASTER', 'MESTRE'] : ['COMUM'];
+    let lastError = null;
+    for (const perfilCandidate of perfilCandidates) {
+      const { error } = await supabaseClient
+        .from('wmss_users')
+        .upsert({ ...payload, perfil: perfilCandidate }, { onConflict: 'usuario' });
+      if (!error) {
+        lastError = null;
+        break;
+      }
+      lastError = error;
+      if (!String(error.message || '').includes('wmss_users_perfil_check')) break;
+    }
+    if (lastError) throw lastError;
+    event.target.reset();
+    if (event.target.ativo) event.target.ativo.checked = true;
+    delete event.target.dataset.editingUser;
+    await loadUsers();
+    setStatus(el.userStatus, 'Usuário salvo com sucesso.', 'success');
+  } catch (error) {
+    setStatus(el.userStatus, `Erro ao salvar usuário: ${error.message}`, 'error');
+  }
+}
+
 function createClient() {
   try {
     if (!window.supabase?.createClient) throw new Error('Biblioteca do Supabase indisponível no momento.');
@@ -354,7 +621,7 @@ async function loadProdutos() {
 async function loadAll() {
   if (!supabaseClient) return;
   try {
-    await Promise.all([loadEstoque(), loadMovimentacoes(), loadProdutos()]);
+    await Promise.all([loadEstoque(), loadMovimentacoes(), loadProdutos(), loadUsers()]);
     showFeedback('Dados carregados com sucesso.');
   } catch (error) {
     showFeedback(`Erro ao carregar dados: ${error.message}`, 'error');
@@ -489,12 +756,14 @@ function sideLabel(side) {
 function filterConsultaRows(rows) {
   const deposito = normalizeText(el.consultaDepositoFilter?.value || 'ALL');
   const side = normalizeText(el.consultaSideFilter?.value || 'ALL');
+  const skuSearch = normalizeText(el.consultaSkuSearch?.value || '');
   return rows.filter((row) => {
     const dep = getDepositoFromArea(row.area);
     const rowSide = getSideFromArea(row.area);
     const depositoOk = deposito === 'ALL' ? true : dep === deposito;
     const sideOk = side === 'ALL' ? true : rowSide === side;
-    return depositoOk && sideOk;
+    const skuOk = !skuSearch || normalizeText(row.sku).includes(skuSearch);
+    return depositoOk && sideOk && skuOk;
   });
 }
 
@@ -550,6 +819,7 @@ function renderConsultaMapaHint() {
 
 function renderConsulta() {
   const rowsFiltrados = filterConsultaRows(cache.estoque);
+  if (!el.consultaAreaBody) return;
   el.consultaAreaBody.innerHTML = '';
   rowsFiltrados.forEach((row) => {
     const tr = document.createElement('tr');
@@ -557,13 +827,21 @@ function renderConsulta() {
     el.consultaAreaBody.appendChild(tr);
   });
 
-  const totais = groupTotalBySku(rowsFiltrados, { excludeRetrabalho: true });
-  el.totaisSkuBody.innerHTML = '';
-  totais.forEach((item) => {
+  if (!rowsFiltrados.length) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${item.sku}</td><td>${item.total_paletes}</td>`;
-    el.totaisSkuBody.appendChild(tr);
-  });
+    tr.innerHTML = '<td colspan="6">Nenhum resultado para os filtros atuais.</td>';
+    el.consultaAreaBody.appendChild(tr);
+  }
+
+  if (el.totaisSkuBody) {
+    const totais = groupTotalBySku(rowsFiltrados, { excludeRetrabalho: true });
+    el.totaisSkuBody.innerHTML = '';
+    totais.forEach((item) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${item.sku}</td><td>${item.total_paletes}</td>`;
+      el.totaisSkuBody.appendChild(tr);
+    });
+  }
 
   renderSobrasB01();
   renderConsultaChao(rowsFiltrados);
@@ -578,6 +856,7 @@ function inferContagemScopeFromPosicao(posicao) {
   if (/^A\d+$/.test(p)) return 'A';
   if (/^B\d+[ED]?$/.test(p) || /^BD\d+$/.test(p) || /^BE\d+$/.test(p)) return 'B';
   if (/^C\d+$/.test(p)) return 'C';
+  if (p.startsWith('CHAO_')) return 'CHAO';
   if (/^(R\d+\.\d+|CHAOESTRUTURA)$/.test(p)) return 'ESTRUTURA';
   if (p.startsWith('TISSUE')) return 'TISSUE';
   if (p.startsWith('LONIL')) return 'LONIL';
@@ -613,6 +892,13 @@ function getOccupiedByWarehouse() {
       else if (scope === 'TISSUE') fromContagem.tissue += Number(result.paletes || 0);
       else if (scope === 'LONIL') fromContagem.lonil += Number(result.paletes || 0);
       else if (scope === 'TTD') fromContagem.ttd += Number(result.paletes || 0);
+      else if (scope === 'CHAO') {
+        const pos = normalizeAreaCode(posicao);
+        if (pos.includes('TISSUE')) fromContagem.tissue += Number(result.paletes || 0);
+        else if (pos.includes('TTD')) fromContagem.ttd += Number(result.paletes || 0);
+        else if (pos.includes('LONIL')) fromContagem.lonil += Number(result.paletes || 0);
+        else fromContagem.principal += Number(result.paletes || 0);
+      }
       fromContagem.linhas += 1;
     });
   });
@@ -780,7 +1066,7 @@ function renderMovimentacoes() {
 
 const estruturaLabels = [
   'R1.01-07', 'R2.01-09', 'R3.01-09', 'R3.10-16', 'R4.01-09', 'R4.10-16',
-  'R5.01-09', 'R5.10-16', 'R6.01-10', 'R6.11-16', 'CHAO ESTRUTURA'
+  'R5.01-09', 'R5.10-16', 'R6.01-10', 'R6.11-16', 'R1.08-13', 'R2.10-16', 'TUNEL', 'CHAO ESTRUTURA'
 ];
 
 function expandRangeLabel(label) {
@@ -798,7 +1084,7 @@ function expandRangeLabel(label) {
 
 function shouldShowContagemSide() {
   const scope = normalizeText(el.contagemScope?.value);
-  return ['B', 'TISSUE', 'TTD', 'LONIL'].includes(scope);
+  return ['B', 'TISSUE', 'TTD', 'LONIL', 'CHAO'].includes(scope);
 }
 
 function updateContagemSideVisibility() {
@@ -827,15 +1113,26 @@ function getContagemPositions(scope, side = 'ALL') {
     return b;
   }
   if (s === 'ESTRUTURA') return [...new Set(estruturaLabels.flatMap(expandRangeLabel))];
+  if (s === 'CHAO') {
+    if (side === 'D') return ['CHAO_PRINCIPAL_D', 'CHAO_TISSUE_D', 'CHAO_TTD_D', 'CHAO_LONIL_D'];
+    if (side === 'E') return ['CHAO_PRINCIPAL_E', 'CHAO_TISSUE_E', 'CHAO_TTD_E', 'CHAO_LONIL_E'];
+    return ['CHAO_PRINCIPAL_D', 'CHAO_PRINCIPAL_E', 'CHAO_TISSUE_D', 'CHAO_TISSUE_E', 'CHAO_TTD_D', 'CHAO_TTD_E', 'CHAO_LONIL_D', 'CHAO_LONIL_E'];
+  }
   if (['TISSUE', 'TTD', 'LONIL'].includes(s)) {
     const fromDb = cache.estoque
       .map((row) => normalizeAreaCode(row.area))
       .filter((area) => area.startsWith(s));
+    const fromContagem = Object.keys(contagemMap || {})
+      .map((area) => normalizeAreaCode(area))
+      .filter((area) => area.startsWith(s));
     const maxPos = fromDb.reduce((max, area) => {
       const m = area.match(/^(?:TISSUE|TTD|LONIL)(\d+)/);
       return m ? Math.max(max, Number(m[1])) : max;
-    }, 0);
-    const qty = maxPos || 20;
+    }, fromContagem.reduce((max, area) => {
+      const m = area.match(/^(?:TISSUE|TTD|LONIL)(\d+)/);
+      return m ? Math.max(max, Number(m[1])) : max;
+    }, 0));
+    const qty = Math.max(maxPos || 0, 80);
     const out = [];
     for (let i = 1; i <= qty; i += 1) {
       const base = `${s}${String(i).padStart(2, '0')}`;
@@ -859,9 +1156,6 @@ function getContagemEntries(posicao) {
     sku: item.sku || '',
     profundidade1: Number(item.profundidade1 || 0),
     largura1: Number(item.largura1 || 0),
-    segundaCamada: typeof item.segundaCamada === 'boolean' ? item.segundaCamada : (Number(item.profundidade2 || 0) > 0 || Number(item.largura2 || 0) > 0),
-    profundidade2: Number(item.profundidade2 || 0),
-    largura2: Number(item.largura2 || 0),
     terceiraCamada: Boolean(item.terceiraCamada),
     paletesTerceira: Number(item.paletesTerceira || 0),
     fardosFaltando: Number(item.fardosFaltando || 0),
@@ -878,9 +1172,6 @@ function createEmptyContagemEntry() {
     sku: '',
     profundidade1: 0,
     largura1: 0,
-    segundaCamada: false,
-    profundidade2: 0,
-    largura2: 0,
     terceiraCamada: false,
     paletesTerceira: 0,
     fardosFaltando: 0,
@@ -898,7 +1189,6 @@ function saveContagemEntries(posicao, entries) {
     ...entry
   }));
   contagemMap[posicao] = normalized;
-  storageSet('wmss_contagem_map', JSON.stringify(contagemMap));
 }
 
 function addContagemEntry(posicao) {
@@ -927,8 +1217,7 @@ function computeContagem(posicao, entry, scope = el.contagemScope?.value) {
     return { ...st, posicao, paletes, paletesCalculados: 0, fardos };
   }
   const basePrimeira = Math.max(0, st.profundidade1 * st.largura1);
-  const baseSegunda = st.segundaCamada ? Math.max(0, st.profundidade2 * st.largura2) : 0;
-  const base = isEstrutura ? (normalizeText(st.sku) ? 1 : 0) : basePrimeira + baseSegunda;
+  const base = isEstrutura ? (normalizeText(st.sku) ? 1 : 0) : basePrimeira;
   const terceira = st.terceiraCamada ? Math.max(0, st.paletesTerceira) : 0;
   const paletesCalculados = base + terceira;
   const paletes = st.usarTotalManual && Number(st.totalManual) > 0 ? Number(st.totalManual) : paletesCalculados;
@@ -951,8 +1240,7 @@ function estimateLayersFromTotal(totalPaletes) {
   const total = Math.max(0, Number(totalPaletes) || 0);
   const capacidadeCamada = 15;
   const primeira = Math.min(total, capacidadeCamada);
-  const segunda = Math.min(Math.max(0, total - capacidadeCamada), capacidadeCamada);
-  const terceira = Math.max(0, total - (capacidadeCamada * 2));
+  const terceira = Math.max(0, total - capacidadeCamada);
 
   const toDepthWidth = (qty) => {
     if (qty <= 0) return { profundidade: 0, largura: 0 };
@@ -962,13 +1250,9 @@ function estimateLayersFromTotal(totalPaletes) {
   };
 
   const c1 = toDepthWidth(primeira);
-  const c2 = toDepthWidth(segunda);
   return {
     profundidade1: c1.profundidade,
     largura1: c1.largura,
-    segundaCamada: segunda > 0,
-    profundidade2: c2.profundidade,
-    largura2: c2.largura,
     terceiraCamada: terceira > 0,
     paletesTerceira: terceira
   };
@@ -980,8 +1264,6 @@ function hasManualContagemData(entry) {
     || Number(entry?.totalManual) > 0
     || Number(entry?.profundidade1) > 0
     || Number(entry?.largura1) > 0
-    || Number(entry?.profundidade2) > 0
-    || Number(entry?.largura2) > 0
     || Number(entry?.paletesTerceira) > 0
     || Boolean(entry?.usarTotalManual)
     || Number(entry?.fardosFaltando) > 0
@@ -994,6 +1276,7 @@ function estimateContagemFromTurno(scope, side = 'ALL') {
   if (!skusDisponiveis.length) return 0;
 
   const positions = getContagemPositions(scope, side);
+  const carryScopes = (el.turnoCarryScopes?.() || []).filter((v) => v !== scope);
   const targetsBySku = {};
   positions.forEach((posicao) => {
     const entries = getContagemEntries(posicao);
@@ -1035,16 +1318,17 @@ async function importContagemFromPlanilha() {
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
     const scope = el.contagemScope?.value;
-    const positionsAll = new Set(['A', 'B', 'C', 'ESTRUTURA', 'TISSUE', 'LONIL', 'TTD']
+    const positionsAll = new Set(['A', 'B', 'C', 'ESTRUTURA', 'CHAO', 'TISSUE', 'LONIL', 'TTD']
       .flatMap((s) => getContagemPositions(s, 'ALL')));
     const normalizeHeader = (key) => String(key || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
     const parseDepositoScope = (deposito) => {
       const dep = normalizeText(deposito);
       if (!dep) return '';
       if (dep.includes('ESTRUT')) return 'ESTRUTURA';
-      if (dep.includes('TISSUE')) return 'TISSUE';
+      if (dep.includes('CHAO')) return 'CHAO';
+      if (dep.includes('TISSUE') || dep.includes('TSUI')) return 'TISSUE';
       if (dep.includes('LONIL')) return 'LONIL';
-      if (dep.includes('TTD')) return 'TTD';
+      if (dep.includes('TTD') || dep.includes('TTT')) return 'TTD';
       if (dep.includes('PRINCIPAL')) return 'PRINCIPAL';
       return '';
     };
@@ -1070,6 +1354,7 @@ async function importContagemFromPlanilha() {
     const validRows = planRows
       .map((row) => {
         let area = normalizeAreaCode(row.area);
+        if (['D', 'E', 'DIREITO', 'ESQUERDO'].includes(area)) area = '';
         let guessScope = row.depositoScope;
         if (!guessScope && /^A\d+/.test(area)) guessScope = 'A';
         if (!guessScope && /^B\d+[DE]?$/.test(area)) guessScope = 'B';
@@ -1078,6 +1363,22 @@ async function importContagemFromPlanilha() {
         if (!guessScope && area.startsWith('LONIL')) guessScope = 'LONIL';
         if (!guessScope && area.startsWith('TTD')) guessScope = 'TTD';
         if (!guessScope && /^(R\d+\.\d+|CHAOESTRUTURA)$/.test(area)) guessScope = 'ESTRUTURA';
+        if (!guessScope && (row.quadrante.includes('CHAO') || area.startsWith('CHAO'))) guessScope = 'CHAO';
+
+        if (guessScope === 'ESTRUTURA' && !/^(R\d+\.\d+|CHAOESTRUTURA|TUNEL)$/.test(area)) {
+          const expanded = expandRangeLabel(row.quadrante || row.area || '');
+          if (expanded?.length) area = normalizeAreaCode(expanded[0]);
+        }
+
+        if (guessScope === 'CHAO' && !area.startsWith('CHAO_')) {
+          const sideFromQuadrante = row.quadrante.includes('DIREIT') ? 'D' : (row.quadrante.includes('ESQUERD') ? 'E' : 'D');
+          let dep = 'LONIL';
+          if (row.depositoScope === 'PRINCIPAL' || row.deposito.includes('PRINCIPAL')) dep = 'PRINCIPAL';
+          else if (row.depositoScope === 'TISSUE' || row.deposito.includes('TISSUE') || row.deposito.includes('TSUI')) dep = 'TISSUE';
+          else if (row.depositoScope === 'TTD' || row.deposito.includes('TTD') || row.deposito.includes('TTT')) dep = 'TTD';
+          else if (row.depositoScope === 'LONIL' || row.deposito.includes('LONIL')) dep = 'LONIL';
+          area = `CHAO_${dep}_${sideFromQuadrante}`;
+        }
 
         if (!area && ['TISSUE', 'TTD', 'LONIL'].includes(guessScope)) {
           const sideFromQuadrante = row.quadrante.includes('DIREIT') ? 'D' : (row.quadrante.includes('ESQUERD') ? 'E' : '');
@@ -1089,7 +1390,7 @@ async function importContagemFromPlanilha() {
           area = `${guessScope}${String(autoIndex[key]).padStart(2, '0')}${preferredSide}`;
         }
 
-        if (!area && ['A', 'B', 'C', 'PRINCIPAL'].includes(guessScope)) return null;
+        if (!area && ['A', 'B', 'C', 'PRINCIPAL', 'CHAO'].includes(guessScope)) return null;
         if ((guessScope === 'A' || /^A/.test(area)) && /^\d+$/.test(area)) area = `A${String(Number(area)).padStart(2, '0')}`;
         if ((guessScope === 'C' || /^C/.test(area)) && /^\d+$/.test(area)) area = `C${String(Number(area)).padStart(2, '0')}`;
         if ((guessScope === 'B' || guessScope === 'PRINCIPAL') && /^B?\d+$/.test(area)) {
@@ -1104,7 +1405,11 @@ async function importContagemFromPlanilha() {
 
         return { ...row, area, tipoPlt: ['PL2', 'PBR'].includes(row.tipoPlt) ? row.tipoPlt : '' };
       })
-      .filter((row) => row && positionsAll.has(normalizeAreaCode(row.area)))
+      .filter((row) => row && (
+        positionsAll.has(normalizeAreaCode(row.area))
+        || /^(?:TISSUE|TTD|LONIL)\d+[DE]$/.test(normalizeAreaCode(row.area))
+        || /^(?:R\d+\.\d+|CHAOESTRUTURA|TUNEL|CHAO_[A-Z]+_[DE]|CHAO_PRINCIPAL)$/.test(normalizeAreaCode(row.area))
+      ))
       .sort((a, b) => normalizeAreaCode(a.area).localeCompare(normalizeAreaCode(b.area), 'pt-BR', { numeric: true }));
 
     if (!validRows.length) {
@@ -1114,7 +1419,6 @@ async function importContagemFromPlanilha() {
 
     if (el.contagemImportResetToggle?.checked) {
       contagemMap = {};
-      storageSet('wmss_contagem_map', JSON.stringify(contagemMap));
     }
 
     const grouped = validRows.reduce((acc, row) => {
@@ -1154,26 +1458,56 @@ function inferTipoContagem(posicao, sku) {
   return 'PL2';
 }
 
+function getTurnoCarryRows(scopes = []) {
+  const selected = new Set((scopes || []).map((v) => normalizeText(v)));
+  if (!selected.size) return [];
+  const latestTurnoRows = turnoSnapshots[0]?.rows || [];
+  return latestTurnoRows
+    .filter((row) => selected.has(inferContagemScopeFromPosicao(row.area)))
+    .filter((row) => Number(row.paletes) > 0 && Number(row.sku) > 0)
+    .map((row) => ({
+      area: normalizeAreaCode(row.area),
+      sku: Number(row.sku),
+      tipo: normalizeText(row.tipo) || inferTipoContagem(row.area, row.sku),
+      paletes: Number(row.paletes)
+    }));
+}
+
 async function applyContagemToConsulta() {
   if (!supabaseClient) return setStatus(el.contagemStatus, 'Banco não conectado para atualizar consulta.', 'error');
-  const scope = el.contagemScope?.value;
+
+  const scope = el.contagemScope?.value || 'A';
   const side = el.contagemSide?.value || 'ALL';
   const positions = getContagemPositions(scope, side);
-  const confirmedRows = positions.flatMap((posicao) => getContagemEntries(posicao)
-    .map((entry) => computeContagem(posicao, entry, scope))
-    .filter((row) => row.confirmada && normalizeText(row.sku) && row.paletes > 0)
-    .map((row) => ({
-      area: normalizeAreaCode(row.posicao),
-      sku: Number(row.sku),
-      tipo: ['PL2', 'PBR'].includes(normalizeText(row.tipoPlt)) ? normalizeText(row.tipoPlt) : inferTipoContagem(row.posicao, row.sku),
-      paletes: Number(row.paletes)
-    })));
+  const carryScopes = (el.turnoCarryScopes?.() || []).filter((v) => v !== scope);
 
-  if (!confirmedRows.length) {
-    return setStatus(el.contagemStatus, 'Nenhuma linha confirmada para atualizar a consulta.', 'error');
+  const confirmedRows = positions
+    .flatMap((posicao) => getContagemEntries(posicao)
+      .map((entry) => computeContagem(posicao, entry, scope))
+      .filter((row) => row.confirmada && normalizeText(row.sku) && row.paletes > 0)
+      .map((row) => ({
+        area: normalizeAreaCode(row.posicao),
+        sku: Number(row.sku),
+        tipo: ['PL2', 'PBR'].includes(normalizeText(row.tipoPlt)) ? normalizeText(row.tipoPlt) : inferTipoContagem(row.posicao, row.sku),
+        paletes: Number(row.paletes)
+      })));
+
+  const carryRows = getTurnoCarryRows(carryScopes);
+
+  const targetAreas = [...new Set([
+    ...positions
+      .filter((posicao) => {
+        const entries = getContagemEntries(posicao);
+        return entries.some((entry) => hasManualContagemData(entry) || Boolean(entry?.confirmada));
+      })
+      .map((posicao) => normalizeAreaCode(posicao)),
+    ...carryRows.map((row) => normalizeAreaCode(row.area))
+  ])];
+
+  if (!targetAreas.length) {
+    return setStatus(el.contagemStatus, 'Nenhuma posição da área selecionada com dados de contagem para aplicar.', 'error');
   }
 
-  const targetAreas = [...new Set(confirmedRows.map((row) => row.area))];
   try {
     const { error: deleteError } = await supabaseClient
       .from('estoque_area')
@@ -1181,14 +1515,17 @@ async function applyContagemToConsulta() {
       .in('area', targetAreas);
     if (deleteError) throw deleteError;
 
-    const { error: insertError } = await supabaseClient
-      .from('estoque_area')
-      .upsert(confirmedRows);
-    if (insertError) throw insertError;
+    const rowsToUpsert = [...confirmedRows, ...carryRows];
+    if (rowsToUpsert.length) {
+      const { error: insertError } = await supabaseClient
+        .from('estoque_area')
+        .upsert(rowsToUpsert);
+      if (insertError) throw insertError;
+    }
 
     await loadAll();
-    setStatus(el.contagemStatus, `Consulta atualizada com ${confirmedRows.length} linha(s) confirmada(s) em ${targetAreas.length} posição(ões).`, 'success');
-    showFeedback('Contagem confirmada aplicada na consulta com sucesso.');
+    setStatus(el.contagemStatus, `Consulta substituída para ${targetAreas.length} posição(ões) da área ${scope}${side !== 'ALL' ? ` (${side})` : ''}. Confirmadas: ${confirmedRows.length}. Herdadas da conferência: ${carryRows.length}.`, 'success');
+    showFeedback('Contagem aplicada na consulta com sucesso.');
   } catch (error) {
     setStatus(el.contagemStatus, `Erro ao atualizar consulta pela contagem: ${error.message}`, 'error');
   }
@@ -1226,7 +1563,7 @@ function preloadContagemFromEstoque(scope, side = 'ALL') {
 
   positions.forEach((posicao) => {
     const existentes = getContagemEntries(posicao);
-    const temDadosDigitados = existentes.some((entry) => normalizeText(entry.sku) || Number(entry.profundidade1) > 0 || Number(entry.largura1) > 0 || Number(entry.profundidade2) > 0 || Number(entry.largura2) > 0 || Number(entry.paletesTerceira) > 0 || Boolean(entry.usarTotalManual) || Number(entry.fardosFaltando) > 0 || Number(entry.totalManual) > 0);
+    const temDadosDigitados = existentes.some((entry) => normalizeText(entry.sku) || Number(entry.profundidade1) > 0 || Number(entry.largura1) > 0 || Number(entry.paletesTerceira) > 0 || Boolean(entry.usarTotalManual) || Number(entry.fardosFaltando) > 0 || Number(entry.totalManual) > 0);
     if (temDadosDigitados) return;
 
     const rows = cache.estoque
@@ -1277,9 +1614,6 @@ function renderContagemTable() {
         <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="blocadoPresente" type="checkbox" ${entry.blocadoPresente ? 'checked' : ''} /></td>
         <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="profundidade1" type="number" min="0" value="${entry.profundidade1 || ''}" />`}</td>
         <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="largura1" type="number" min="0" value="${entry.largura1 || ''}" />`}</td>
-        <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="segundaCamada" type="checkbox" ${entry.segundaCamada ? 'checked' : ''} />`}</td>
-        <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : (entry.segundaCamada ? `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="profundidade2" type="number" min="0" value="${entry.profundidade2 || ''}" />` : '<span class="contagem-collapsed">marque 2ª camada</span>')}</td>
-        <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : (entry.segundaCamada ? `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="largura2" type="number" min="0" value="${entry.largura2 || ''}" />` : '<span class="contagem-collapsed">marque 2ª camada</span>')}</td>
         <td>${!entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="terceiraCamada" type="checkbox" ${entry.terceiraCamada ? 'checked' : ''} />`}</td>
         <td>${!entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="paletesTerceira" type="number" min="0" value="${entry.paletesTerceira || ''}" ${entry.terceiraCamada ? '' : 'disabled'} />`}</td>
         <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="fardosFaltando" type="number" min="0" value="${entry.fardosFaltando || ''}" /></td>
@@ -1320,16 +1654,9 @@ function renderContagemTable() {
       const idx = Number(entryIdx || 0);
       const current = { ...entries[idx] };
       current[field] = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
-      if (field === 'segundaCamada' && !event.target.checked) {
-        current.profundidade2 = 0;
-        current.largura2 = 0;
-      }
       if (field === 'blocadoPresente' && !event.target.checked) {
         current.profundidade1 = 0;
         current.largura1 = 0;
-        current.segundaCamada = false;
-        current.profundidade2 = 0;
-        current.largura2 = 0;
         current.terceiraCamada = false;
         current.paletesTerceira = 0;
       }
@@ -1371,11 +1698,8 @@ function exportContagemExcel() {
       item_posicao: row.entry_idx,
       profundidade_1: row.profundidade1,
       largura_1: row.largura1,
-      segunda_camada: row.segundaCamada ? 'SIM' : 'NAO',
-      profundidade_2: row.profundidade2,
-      largura_2: row.largura2,
-      terceira_camada: row.terceiraCamada ? 'SIM' : 'NAO',
-      paletes_terceira: row.terceiraCamada ? row.paletesTerceira : 0,
+      ultima_camada: row.terceiraCamada ? 'SIM' : 'NAO',
+      paletes_ultima: row.terceiraCamada ? row.paletesTerceira : 0,
       fardos_faltando: row.fardosFaltando || 0,
       usar_total_editavel: row.usarTotalManual ? 'SIM' : 'NAO',
       total_editavel: row.totalManual || 0,
@@ -1420,7 +1744,6 @@ function setupContagem() {
         confirmada: false,
         blocadoPresente: true,
         usarTotalManual: false,
-        segundaCamada: false,
         terceiraCamada: false
       }));
       saveContagemEntries(posicao, entries);
@@ -1428,20 +1751,10 @@ function setupContagem() {
     renderContagemTable();
     setStatus(el.contagemStatus, 'Checkboxes limpos para iniciar novo turno.', 'success');
   });
-  el.contagemEstimateBtn?.addEventListener('click', () => {
-    const scope = el.contagemScope?.value;
-    const side = el.contagemSide?.value || 'ALL';
-    const estimadas = estimateContagemFromTurno(scope, side);
-    renderContagemTable();
-    setStatus(el.contagemStatus, estimadas
-      ? `Estimativa da última conferência aplicada em ${estimadas} linha(s). Campos continuam editáveis, inclusive o total.`
-      : 'Não há dados da última conferência para estimar (suba a planilha na aba Conferência de turno).', estimadas ? 'success' : 'error');
-  });
   el.contagemApplyBtn?.addEventListener('click', applyContagemToConsulta);
   el.contagemForm?.addEventListener('submit', (event) => {
     event.preventDefault();
-    renderContagemTable();
-    setStatus(el.contagemStatus, 'Cálculo atualizado.', 'success');
+    applyContagemToConsulta();
   });
   el.contagemExportBtn?.addEventListener('click', exportContagemExcel);
 }
@@ -1488,7 +1801,6 @@ async function handleEstoqueSubmit(event) {
     } else {
       delete fracionadoMap[chave];
     }
-    storageSet('wmss_fracionado_map', JSON.stringify(fracionadoMap));
 
     showFeedback('Estoque salvo com sucesso.');
     event.target.reset();
@@ -1589,11 +1901,12 @@ function consolidarPorChave(rows) {
 function saveTurnoSnapshot(snapshotRows) {
   const item = {
     created_at: new Date().toISOString(),
-    rows: snapshotRows
+    rows: snapshotRows,
+    centros: splitRowsByCentro(snapshotRows)
   };
 
-  turnoSnapshots = [item, ...turnoSnapshots].slice(0, 3);
-  storageSet('wmss_turno_snapshots', JSON.stringify(turnoSnapshots));
+  turnoSnapshots = [item];
+  storageSetJSON(TURNO_SNAPSHOT_STORAGE_KEY, item);
   renderTurnoHistory();
 }
 
@@ -1601,18 +1914,20 @@ function renderTurnoHistory() {
   if (!el.turnoHistoryBody) return;
   el.turnoHistoryBody.innerHTML = '';
 
-  if (!turnoSnapshots.length) {
+  const latest = turnoSnapshots[0];
+  if (!latest) {
     const tr = document.createElement('tr');
     tr.innerHTML = '<td colspan="2">Sem snapshots salvos.</td>';
     el.turnoHistoryBody.appendChild(tr);
     return;
   }
 
-  turnoSnapshots.forEach((snap) => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${new Date(snap.created_at).toLocaleString('pt-BR')}</td><td>${snap.rows.length}</td>`;
-    el.turnoHistoryBody.appendChild(tr);
-  });
+  const resumoCentros = Object.entries(latest.centros || {})
+    .map(([centro, rows]) => `${centro}: ${rows.length}`)
+    .join(' | ');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td>${new Date(latest.created_at).toLocaleString('pt-BR')}</td><td>${latest.rows.length}${resumoCentros ? ` (${resumoCentros})` : ''}</td>`;
+  el.turnoHistoryBody.appendChild(tr);
 }
 
 async function handleTurnoSubmit(event) {
@@ -1633,7 +1948,6 @@ async function handleTurnoSubmit(event) {
       acc[key] = (acc[key] || 0) + paletes;
       return acc;
     }, {});
-    storageSet('wmss_turno_ultima_planilha_sku', JSON.stringify(turnoUltimaPlanilhaSku));
 
     const snapshotAnterior = turnoSnapshots[0]?.rows ?? null;
     const atual = snapshotAnterior ? consolidarPorChave(snapshotAnterior) : consolidarPorChave(cache.estoque);
@@ -1687,20 +2001,88 @@ async function handleTurnoSubmit(event) {
 }
 
 function mapImportRow(rawRow) {
+  const normalizeHeader = (key) => String(key || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
   const row = Object.fromEntries(
-    Object.entries(rawRow).map(([k, v]) => [String(k).trim().toLowerCase(), v])
+    Object.entries(rawRow || {}).map(([k, v]) => [normalizeHeader(k), v])
   );
 
-  const areaRaw = row.area ?? row['área'] ?? row.endereco ?? row.endereço;
-  const skuRaw = row.sku ?? row.codsku ?? row['cód_sku'];
-  const tipoRaw = row.tipo ?? row.produto_tipo;
-  const paletesRaw = row.paletes ?? row.pallets ?? row.quantidade;
+  const toNum = (v) => {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : NaN;
+    const raw = String(v ?? '').trim().replace(',', '.');
+    if (!raw) return NaN;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : NaN;
+  };
+
+  const depositoRaw = normalizeText(row.deposito ?? row.deposito ?? row.setor ?? row.rua ?? row.local);
+  const quadranteRaw = String(row.quadrante ?? row.endereco ?? row.endereço ?? row.area ?? row.posicao ?? '').trim();
+  const quadrante = normalizeAreaCode(quadranteRaw);
+  const ladoRaw = normalizeText(row.lado ?? row.side ?? '');
+
+  const inferArea = () => {
+    const explicitArea = normalizeAreaCode(row.area ?? row['área'] ?? row.endereco ?? row.endereço ?? row.posicao);
+    if (explicitArea) return explicitArea;
+
+    const dep = depositoRaw;
+    const q = quadrante;
+    if (!q && !dep) return '';
+
+    if (dep.includes('ESTRUT')) {
+      if (q.includes('TUNEL')) return 'TUNEL';
+      if (q.includes('CHAO')) return 'CHAOESTRUTURA';
+      if (/^R\d+\.\d+(?:-\d+)?$/.test(q)) return normalizeAreaCode(q.replace(/-(\d+)$/, ''));
+      return normalizeAreaCode(q);
+    }
+
+    if (dep.includes('TISSUE') || dep.includes('TSUI')) {
+      const side = ladoRaw.startsWith('E') || q.includes('ESQUER') ? 'E' : 'D';
+      if (q.includes('CHAO')) return `CHAO_TISSUE_${side}`;
+      if (/^\d+$/.test(q)) return `TISSUE${String(Number(q)).padStart(2, '0')}${side}`;
+      if (/^TISSUE\d+[DE]$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (q === 'D' || q === 'E') return `TISSUE01${q}`;
+      return `TISSUE01${side}`;
+    }
+
+    if (dep.includes('LONIL')) {
+      const side = ladoRaw.startsWith('E') || q.includes('ESQUER') ? 'E' : 'D';
+      if (q.includes('CHAO')) return `CHAO_LONIL_${side}`;
+      if (/^\d+$/.test(q)) return `LONIL${String(Number(q)).padStart(2, '0')}${side}`;
+      if (/^LONIL\d+[DE]$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (q === 'D' || q === 'E') return `LONIL01${q}`;
+      return `LONIL01${side}`;
+    }
+
+    if (dep.includes('TTD') || dep.includes('TTT')) {
+      const side = ladoRaw.startsWith('E') || q.includes('ESQUER') ? 'E' : 'D';
+      if (q.includes('CHAO')) return `CHAO_TTD_${side}`;
+      if (/^\d+$/.test(q)) return `TTD${String(Number(q)).padStart(2, '0')}${side}`;
+      if (/^TTD\d+[DE]$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (q === 'D' || q === 'E') return `TTD01${q}`;
+      return `TTD01${side}`;
+    }
+
+    if (dep.includes('PRINCIPAL') || !dep) {
+      if (q.includes('PICKING')) return 'PICKING';
+      if (q.includes('CHAO')) return 'CHAO_PRINCIPAL';
+      if (/^A\d+$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (/^C\d+$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (/^B\d+[DE]$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (/^B\d+$/.test(normalizeAreaCode(q))) return `${normalizeAreaCode(q)}D`;
+      return normalizeAreaCode(q);
+    }
+
+    return normalizeAreaCode(q);
+  };
+
+  const paletesRaw = row.paletes ?? row.pallets ?? row.quantidade ?? row.qtd_plt ?? row['qtd plt'] ?? row.qtdplt;
+  const tipoRaw = row.tipo ?? row.produto_tipo ?? row.tipo_plt ?? row['tipo plt'];
+  const skuRaw = row.sku ?? row.codsku ?? row['cod_sku'] ?? row['cód_sku'];
 
   return {
-    area: normalizeAreaCode(areaRaw),
-    sku: Number(skuRaw),
-    tipo: normalizeText(tipoRaw),
-    paletes: Number(paletesRaw),
+    area: inferArea(),
+    sku: toNum(skuRaw),
+    tipo: normalizeText(tipoRaw) || 'PL2',
+    paletes: toNum(paletesRaw),
     acao: normalizeText(row.acao)
   };
 }
@@ -2094,7 +2476,7 @@ function exportWorkbook(fileName, sheets) {
 }
 
 function setupExports() {
-  el.exportCadastroBtn.addEventListener('click', () => {
+  el.exportCadastroBtn?.addEventListener('click', () => {
     const { rows: estoqueExportRows, missingSkus } = buildEstoqueExportRows();
     const totais = groupTotalBySku(cache.estoque, { excludeRetrabalho: true });
     exportWorkbook('cadastro_estoque.xlsx', [
@@ -2104,7 +2486,7 @@ function setupExports() {
     if (missingSkus.length) showFeedback(`Aviso: SKU(s) sem fardos por palete: ${missingSkus.join(', ')}.`, 'error');
   });
 
-  el.exportConsultaBtn.addEventListener('click', () => {
+  el.exportConsultaBtn?.addEventListener('click', () => {
     const { rows: estoqueExportRows, missingSkus } = buildEstoqueExportRows();
     const totais = groupTotalBySku(cache.estoque, { excludeRetrabalho: true });
     exportWorkbook('consulta_estoque.xlsx', [
@@ -2144,6 +2526,16 @@ function setupTabs() {
 }
 
 function setupPlanejamento() {
+  el.aiAssistBtn?.addEventListener('click', runAiAssist);
+
+  el.planejamentoEstimateTurnoBtn?.addEventListener('click', () => {
+    const estimadas = estimateContagemFromTurno(el.contagemScope?.value || 'A', el.contagemSide?.value || 'ALL');
+    renderContagemTable();
+    setStatus(el.planejamentoResultado, estimadas
+      ? `Estimativa da última conferência aplicada em ${estimadas} linha(s) na Contagem.`
+      : 'Sem dados da última conferência para estimar.', estimadas ? 'success' : 'error');
+  });
+
   el.planejamentoForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     let itens = parseIncomingForecast(el.previsaoEntrada?.value);
@@ -2186,9 +2578,14 @@ function exportConsultaResumoPDF() {
 
 function setupConsulta() {
   el.consultaFilterForm?.addEventListener('change', renderConsulta);
+  el.consultaSkuSearch?.addEventListener('input', renderConsulta);
   el.mapaAreaSelect?.addEventListener('change', renderConsultaMapaHint);
   el.mapaPosicaoInput?.addEventListener('input', renderConsultaMapaHint);
   el.exportConsultaResumoPdfBtn?.addEventListener('click', exportConsultaResumoPDF);
+  el.consultaRefreshBtn?.addEventListener('click', async () => {
+    await loadAll();
+    showFeedback('Consulta atualizada sem recarregar a página.');
+  });
   document.querySelectorAll('.consulta-subnav-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.consulta-subnav-btn').forEach((b) => b.classList.remove('active'));
@@ -2214,11 +2611,13 @@ function setupOcupacao() {
 
 function init() {
   setupTabs();
+  setupLogin();
   setupExports();
   setupConsulta();
   setupPlanejamento();
   setupOcupacao();
   setupContagem();
+  loadTurnoSnapshotFromStorage();
   renderTurnoHistory();
   el.turnoForm?.addEventListener('submit', handleTurnoSubmit);
   el.exportTurnoExcelBtn?.addEventListener('click', exportTurnoResultadoExcel);
@@ -2229,9 +2628,9 @@ function init() {
   });
   el.estoqueForm.addEventListener('submit', handleEstoqueSubmit);
   el.produtoForm.addEventListener('submit', handleProdutoSubmit);
+  el.userForm?.addEventListener('submit', handleUserSubmit);
   el.expedicaoForm?.addEventListener('submit', handleExpedicaoSubmit);
   el.importForm?.addEventListener('submit', handleImportSubmit);
-  el.adminPasteForm?.addEventListener('submit', handleAdminPasteSubmit);
   el.selectImportBtn?.addEventListener('click', () => el.importFile?.click());
   el.importFile?.addEventListener('change', () => {
     const name = el.importFile.files?.[0]?.name || 'Nenhum arquivo selecionado';
@@ -2243,12 +2642,10 @@ function init() {
   el.themeToggleBtn?.addEventListener('click', () => {
     const isDark = !document.body.classList.contains('dark');
     document.body.classList.toggle('dark', isDark);
-    storageSet('wmss_theme', isDark ? 'dark' : 'light');
     el.themeToggleBtn.textContent = isDark ? '☀️ Modo claro' : '🌙 Modo escuro';
   });
   el.autoExportToggle?.addEventListener('change', (event) => {
     const enabled = event.target.checked;
-    storageSet('wmss_auto_export', enabled ? '1' : '0');
     showFeedback(enabled ? 'Auto planilha ativado.' : 'Auto planilha desativado.');
   });
   createClient();

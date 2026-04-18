@@ -371,7 +371,7 @@ th, td {
 
 
 #contagemTable .contagem-sku-input {
-  min-width: 240px;
+  min-width: 320px;
 }
 
 #contagemTable .contagem-collapsed {
@@ -424,3 +424,41 @@ body.dark input, body.dark select, body.dark textarea {
   min-height: 170px;
   resize: vertical;
 }
+
+
+.hidden-by-role { display: none !important; }
+#loginForm { margin-top: 0.5rem; }
+#loginForm input { min-width: 140px; }
+
+
+.ai-assist-box {
+  margin: 0.75rem 0 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+#aiAssistPrompt {
+  width: 100%;
+  min-height: 92px;
+  resize: vertical;
+}
+
+
+.carryover-box {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.65rem 0.8rem;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 0.4rem;
+}
+
+.carryover-box legend {
+  padding: 0 0.35rem;
+  font-weight: 600;
+}
+
+
+a.secondary { display: inline-block; text-decoration: none; border-radius: 8px; padding: 0.6rem 0.9rem; background: var(--btn-secondary); color: #fff; }
