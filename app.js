@@ -109,8 +109,6 @@ const el = {
   contagemStatus: document.getElementById('contagemStatus'),
   contagemBody: document.querySelector('#contagemTable tbody'),
   contagemResumoBody: document.querySelector('#contagemResumoTable tbody'),
-  mb51Form: document.getElementById('mb51Form'),
-  mb51File: document.getElementById('mb51File'),
   mb51Status: document.getElementById('mb51Status'),
   mb51TableBody: document.querySelector('#mb51Table tbody'),
   mb51CentrosActions: document.getElementById('mb51CentrosActions'),
@@ -282,7 +280,7 @@ function setupLogin() {
       return;
     }
 
-    const perfil = normalizeText(auth.perfil || 'COMUM');
+    const perfil = normalizePerfilForUI(auth.perfil || 'COMUM');
     currentUser = {
       id: auth.usuario || user,
       role: perfil === 'MASTER' ? 'master' : (perfil === 'ANALISTA' ? 'analyst' : 'common')
@@ -312,7 +310,7 @@ function setupLogin() {
 
     try {
       let error = null;
-      for (const perfilValue of ['COMUM', 'comum']) {
+      for (const perfilValue of buildPerfilCandidates('COMUM')) {
         const payload = { usuario, nome, senha, perfil: perfilValue, ativo: true };
         const result = await supabaseClient.from('wmss_users').insert(payload);
         error = result.error || null;
@@ -357,6 +355,20 @@ function showFeedback(message, type = 'success') {
 
 function normalizeText(value) {
   return String(value ?? '').trim().toUpperCase();
+}
+
+function normalizePerfilForUI(value) {
+  const perfil = normalizeText(value);
+  if (['MASTER', 'MESTRE'].includes(perfil)) return 'MASTER';
+  if (['ANALISTA', 'ANALYST'].includes(perfil)) return 'ANALISTA';
+  return 'COMUM';
+}
+
+function buildPerfilCandidates(uiPerfil) {
+  const perfil = normalizePerfilForUI(uiPerfil);
+  if (perfil === 'MASTER') return ['MASTER', 'master', 'MESTRE', 'mestre'];
+  if (perfil === 'ANALISTA') return ['ANALISTA', 'analista', 'ANALYST', 'analyst'];
+  return ['COMUM', 'comum', 'USUARIO', 'usuario', 'COMMON', 'common'];
 }
 
 function normalizeAreaCode(value) {
@@ -517,16 +529,16 @@ function renderMb51Table(centro) {
   });
 }
 
-function getContagemTotalsBySku() {
+function getSistemaTotalsBySku() {
   const totals = {};
-  Object.values(contagemMap || {}).forEach((entries) => {
-    (entries || []).forEach((entry) => {
-      const sku = normalizeMaterialCode(entry?.sku);
-      if (!sku) return;
-      const fardos = Number(entry?.fardos);
-      if (!Number.isFinite(fardos) || fardos <= 0) return;
-      totals[sku] = (totals[sku] || 0) + fardos;
-    });
+  (cache.estoque || []).forEach((row) => {
+    const sku = normalizeMaterialCode(row?.sku);
+    if (!sku) return;
+    const paletes = Number(row?.paletes || 0);
+    if (!Number.isFinite(paletes) || paletes <= 0) return;
+    const fpp = getFardosPorPalete(sku);
+    if (!Number.isFinite(fpp) || fpp <= 0) return;
+    totals[sku] = (totals[sku] || 0) + (paletes * fpp);
   });
   return totals;
 }
@@ -673,7 +685,7 @@ function renderUsersTable() {
       el.userForm.usuario.value = u.usuario || '';
       el.userForm.nome.value = u.nome || '';
       el.userForm.senha.value = '';
-      el.userForm.perfil.value = normalizeText(u.perfil || 'COMUM');
+      el.userForm.perfil.value = normalizePerfilForUI(u.perfil || 'COMUM');
       el.userForm.ativo.checked = Boolean(u.ativo);
       setStatus(el.userStatus, `Editando usuário ${u.usuario}. Preencha a senha somente se quiser alterá-la.`, '');
     });
@@ -705,16 +717,19 @@ async function handleUserSubmit(event) {
   const usuario = normalizeText(formData.get('usuario'));
   const nome = String(formData.get('nome') || '').trim();
   const senha = String(formData.get('senha') || '').trim();
-  const perfil = normalizeText(formData.get('perfil') || 'COMUM');
+  const perfil = normalizePerfilForUI(formData.get('perfil') || 'COMUM');
   const ativo = formData.get('ativo') === 'on';
 
   const isUpdate = cache.users.some((u) => normalizeText(u.usuario) === usuario);
   if (!usuario || (!isUpdate && !senha)) return setStatus(el.userStatus, 'Informe usuário e senha para novo cadastro.', 'error');
   if (!['MASTER', 'COMUM', 'ANALISTA'].includes(perfil)) return setStatus(el.userStatus, 'Perfil inválido.', 'error');
 
+  const baseCandidates = buildPerfilCandidates(perfil);
   const perfilCandidates = perfilWriteMode === 'LOWER'
-    ? [perfil.toLowerCase()]
-    : (perfilWriteMode === 'UPPER' ? [perfil] : [perfil, perfil.toLowerCase()]);
+    ? [...baseCandidates.filter((v) => v === v.toLowerCase()), ...baseCandidates]
+    : (perfilWriteMode === 'UPPER'
+      ? [...baseCandidates.filter((v) => v === v.toUpperCase()), ...baseCandidates]
+      : baseCandidates);
 
   try {
     let lastError = null;
@@ -725,7 +740,7 @@ async function handleUserSubmit(event) {
         .from('wmss_users')
         .upsert(payload, { onConflict: 'usuario' });
       if (!error) {
-        perfilWriteMode = perfilValue === perfil ? 'UPPER' : 'LOWER';
+        perfilWriteMode = perfilValue === perfilValue.toUpperCase() ? 'UPPER' : 'LOWER';
         lastError = null;
         break;
       }
@@ -738,6 +753,10 @@ async function handleUserSubmit(event) {
     await loadUsers();
     setStatus(el.userStatus, 'Usuário salvo com sucesso.', 'success');
   } catch (error) {
+    if (String(error.message || '').includes('wmss_users_perfil_check')) {
+      setStatus(el.userStatus, `Erro ao salvar usuário: perfil não aceito pela regra do banco (${perfil}).`, 'error');
+      return;
+    }
     setStatus(el.userStatus, `Erro ao salvar usuário: ${error.message}`, 'error');
   }
 }
@@ -2771,33 +2790,6 @@ function setupOcupacao() {
   });
 }
 
-async function handleMb51Submit(event) {
-  event.preventDefault();
-  const file = el.mb51File?.files?.[0];
-  if (!file) return setStatus(el.mb51Status, 'Selecione a planilha MB51.', 'error');
-
-  try {
-    const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(buffer, { type: 'array' });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' })
-      .map(mapMb51Row)
-      .filter((row) => row.centro && row.material && Number.isFinite(row.utilizacaoLivre));
-
-    if (!rows.length) {
-      setStatus(el.mb51Status, 'Nenhuma linha válida encontrada com centro/material/utilização livre.', 'error');
-      return;
-    }
-
-    saveMb51Snapshot(rows);
-    const centroDefault = selectedMb51Centro || getMb51Centros()[0] || '';
-    renderMb51Table(centroDefault);
-    setStatus(el.mb51Status, `MB51 atualizada com ${rows.length} linha(s). Base salva para comparação em tempo real.`, 'success');
-  } catch (error) {
-    setStatus(el.mb51Status, `Erro ao processar MB51: ${error.message}`, 'error');
-  }
-}
-
 function parseMb52SkuRows(rows) {
   return rows
     .map((rawRow) => {
@@ -2808,6 +2800,12 @@ function parseMb52SkuRows(rows) {
     .filter(Boolean);
 }
 
+function extractMb51RowsFromMb52(rows) {
+  return (rows || [])
+    .map(mapMb51Row)
+    .filter((row) => row.centro && row.material && Number.isFinite(row.utilizacaoLivre));
+}
+
 function renderMb52Comparison(skuList, sourceLabel = 'planilha') {
   if (!el.mb52TableBody) return;
   const uniqueSkus = [...new Set((skuList || []).map((sku) => normalizeMaterialCode(sku)).filter(Boolean))];
@@ -2816,7 +2814,7 @@ function renderMb52Comparison(skuList, sourceLabel = 'planilha') {
     return;
   }
 
-  const contagemTotals = getContagemTotalsBySku();
+  const contagemTotals = getSistemaTotalsBySku();
   const mb51BySku = mb51Snapshot.reduce((acc, row) => {
     const key = normalizeMaterialCode(row.material);
     if (!key) return acc;
@@ -2855,7 +2853,16 @@ async function handleMb52Submit(event) {
     const buffer = await file.arrayBuffer();
     const workbook = XLSX.read(buffer, { type: 'array' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    mb52LastSkuList = parseMb52SkuRows(XLSX.utils.sheet_to_json(sheet, { defval: '' }));
+    const parsedRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    mb52LastSkuList = parseMb52SkuRows(parsedRows);
+    const mb51Rows = extractMb51RowsFromMb52(parsedRows);
+    if (mb51Rows.length) {
+      saveMb51Snapshot(mb51Rows);
+      renderMb51Table(selectedMb51Centro || getMb51Centros()[0] || '');
+      setStatus(el.mb51Status, `Base por centro atualizada automaticamente com ${mb51Rows.length} linha(s) da planilha MB52.`, 'success');
+    } else {
+      setStatus(el.mb51Status, 'Planilha MB52 enviada sem colunas de centro/utilização livre. Mantendo base anterior por centro.', '');
+    }
     renderMb52Comparison(mb52LastSkuList, 'planilha enviada');
   } catch (error) {
     setStatus(el.mb52Status, `Erro ao processar MB52: ${error.message}`, 'error');
@@ -2874,7 +2881,6 @@ function setupMb51Mb52() {
   loadMb51Snapshot();
   renderMb51CenterButtons();
   if (mb51Snapshot.length) renderMb51Table(getMb51Centros()[0] || '');
-  el.mb51Form?.addEventListener('submit', handleMb51Submit);
   el.mb52Form?.addEventListener('submit', handleMb52Submit);
   el.mb52RefreshBtn?.addEventListener('click', refreshMb52Comparison);
 }

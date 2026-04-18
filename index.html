@@ -58,7 +58,7 @@
         <button class="tab-btn" data-tab="planejamento" data-role="master analyst">Planejamento</button>
         <button class="tab-btn" data-tab="ocupacao" data-role="master">Ocupação</button>
         <button class="tab-btn" data-tab="contagem">Contagem</button>
-        <button class="tab-btn" data-tab="mb51" data-role="master analyst">MB51</button>
+        <button class="tab-btn" data-tab="mb51" data-role="master analyst">Consulta MB52</button>
         <button class="tab-btn" data-tab="mb52" data-role="analyst">MB52</button>
       </nav>
 
@@ -398,16 +398,8 @@
 
       <section id="mb51" class="tab-content" data-role="master analyst">
         <div class="card">
-          <h2>MB51 - Base de materiais por centro</h2>
-          <p class="helper-text">Suba a planilha com as colunas: Material, Texto breve material, Centro, Depósito, Em contr.qualidade, Trânsito e TE, Bloqueado, Utilização livre, Unid.medida básica, Lote e Tipo de material. A base MB51 fica salva no navegador e só é substituída quando uma nova planilha MB51 é enviada.</p>
-          <form id="mb51Form" class="grid form-grid">
-            <label>Planilha MB51 (.xlsx/.xls/.csv)
-              <input id="mb51File" type="file" accept=".xlsx,.xls,.csv" required />
-            </label>
-            <div class="actions">
-              <button type="submit">Processar planilha MB51</button>
-            </div>
-          </form>
+          <h2>Consulta MB52 - Base por centro</h2>
+          <p class="helper-text">Esta tela usa a última planilha enviada na MB52. Se a planilha tiver colunas de MB51 (Material, Centro e Utilização livre), a base por centro será atualizada automaticamente.</p>
           <p id="mb51Status" class="status"></p>
           <div id="mb51CentrosActions" class="actions"></div>
           <div class="table-wrapper">
@@ -435,7 +427,7 @@
           <p id="mb52Status" class="status"></p>
           <div class="table-wrapper">
             <table id="mb52Table">
-              <thead><tr><th>SKU / Material</th><th>Descrição</th><th>MB51 (utilização livre)</th><th>Sistema (contagem)</th><th>Diferença</th></tr></thead>
+              <thead><tr><th>SKU / Material</th><th>Descrição</th><th>MB51 (utilização livre)</th><th>Sistema (consulta)</th><th>Diferença</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
