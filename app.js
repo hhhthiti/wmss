@@ -151,6 +151,7 @@ let mb51Snapshot = [];
 let selectedMb51Centro = '';
 let mb52LastSkuList = [];
 let perfilWriteMode = 'AUTO';
+let perfilValuesFromDb = new Set();
 
 const manualOcupados = new Set([
   'A14', 'A15', 'A16', 'A17', 'A18', 'A19',
@@ -310,7 +311,7 @@ function setupLogin() {
 
     try {
       let error = null;
-      for (const perfilValue of buildPerfilCandidates('COMUM')) {
+      for (const perfilValue of getDbPerfilCandidates('COMUM')) {
         const payload = { usuario, nome, senha, perfil: perfilValue, ativo: true };
         const result = await supabaseClient.from('wmss_users').insert(payload);
         error = result.error || null;
@@ -369,6 +370,14 @@ function buildPerfilCandidates(uiPerfil) {
   if (perfil === 'MASTER') return ['MASTER', 'master', 'MESTRE', 'mestre'];
   if (perfil === 'ANALISTA') return ['ANALISTA', 'analista', 'ANALYST', 'analyst'];
   return ['COMUM', 'comum', 'USUARIO', 'usuario', 'COMMON', 'common'];
+}
+
+function getDbPerfilCandidates(uiPerfil) {
+  const normalizedTarget = normalizePerfilForUI(uiPerfil);
+  const detected = [...perfilValuesFromDb].filter(Boolean);
+  if (!detected.length) return buildPerfilCandidates(normalizedTarget);
+  const compatible = detected.filter((value) => normalizePerfilForUI(value) === normalizedTarget);
+  return compatible.length ? compatible : buildPerfilCandidates(normalizedTarget);
 }
 
 function normalizeAreaCode(value) {
@@ -705,6 +714,7 @@ async function loadUsers() {
     .order('usuario', { ascending: true });
   if (error) throw error;
   cache.users = data ?? [];
+  perfilValuesFromDb = new Set((cache.users || []).map((u) => String(u?.perfil || '').trim()).filter(Boolean));
   renderUsersTable();
 }
 
@@ -724,7 +734,10 @@ async function handleUserSubmit(event) {
   if (!usuario || (!isUpdate && !senha)) return setStatus(el.userStatus, 'Informe usuário e senha para novo cadastro.', 'error');
   if (!['MASTER', 'COMUM', 'ANALISTA'].includes(perfil)) return setStatus(el.userStatus, 'Perfil inválido.', 'error');
 
-  const baseCandidates = buildPerfilCandidates(perfil);
+  const baseCandidates = getDbPerfilCandidates(perfil);
+  if (!baseCandidates.length) {
+    return setStatus(el.userStatus, `Perfil ${perfil} não está habilitado na regra atual do banco.`, 'error');
+  }
   const perfilCandidates = perfilWriteMode === 'LOWER'
     ? [...baseCandidates.filter((v) => v === v.toLowerCase()), ...baseCandidates]
     : (perfilWriteMode === 'UPPER'
@@ -741,6 +754,7 @@ async function handleUserSubmit(event) {
         .upsert(payload, { onConflict: 'usuario' });
       if (!error) {
         perfilWriteMode = perfilValue === perfilValue.toUpperCase() ? 'UPPER' : 'LOWER';
+        perfilValuesFromDb.add(perfilValue);
         lastError = null;
         break;
       }
