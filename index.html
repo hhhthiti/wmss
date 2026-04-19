@@ -46,6 +46,7 @@
           <button id="logoutBtn" type="button" class="secondary">Sair</button>
         </div>
         <button id="themeToggleBtn" class="secondary" type="button" aria-label="Alternar modo escuro">🌙 Modo escuro</button>
+        <button id="logsBtn" type="button" class="secondary" data-role="master analyst" style="background:#2a7f46;">📋 Logs</button>
       </header>
 
       <main>
@@ -365,6 +366,7 @@
               <button type="submit">Calcular</button>
               <button id="contagemApplyBtn" type="button">Atualizar consulta (confirmados)</button>
               <button id="contagemExportBtn" type="button" class="secondary">Exportar Excel (todas as áreas)</button>
+              <button id="contagemDeleteBtn" type="button" class="danger" data-role="master analyst">🗑 Apagar contagem do banco</button>
             </div>
           </form>
           <p id="contagemStatus" class="status"></p>
@@ -466,6 +468,37 @@
 
       <p id="feedback" class="status"></p>
     </main>
+    </div>
+
+    <!-- ── Tela de Logs ──────────────────────────────────────────── -->
+    <div id="logsScreen" class="hidden">
+      <header>
+        <h1>Logs de ações</h1>
+        <div class="actions">
+          <button id="logsBackBtn" type="button" class="secondary">← Voltar</button>
+        </div>
+      </header>
+      <main>
+        <div class="card">
+          <h2>Histórico de ações por usuário</h2>
+          <div class="grid form-grid" style="margin-bottom:1rem;">
+            <label>Filtrar por usuário
+              <select id="logsUserFilter"><option value="">Todos os usuários</option></select>
+            </label>
+            <div class="actions">
+              <button id="logsExportBtn" type="button" class="secondary">Exportar Excel (filtro atual)</button>
+            </div>
+          </div>
+          <div class="table-wrapper">
+            <table id="logsTable">
+              <thead>
+                <tr><th>Usuário</th><th>Ação</th><th>Detalhe</th><th>Data/Hora</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </main>
     </div>
 
     <script src="app.js"></script>

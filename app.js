@@ -665,23 +665,163 @@ async function handleUserSubmit(event) {
   const perfil = normalizeText(formData.get('perfil') || 'COMUM');
   const ativo = formData.get('ativo') === 'on';
 
-  if (!usuario || !senha) return setStatus(el.userStatus, 'Informe usuário e senha.', 'error');
+  if (!usuario) return setStatus(el.userStatus, 'Informe o usuário.', 'error');
   if (!['MASTER', 'COMUM', 'ANALISTA'].includes(perfil)) return setStatus(el.userStatus, 'Perfil inválido.', 'error');
 
-  const payload = { usuario, nome, senha, perfil, ativo };
   try {
-    const { error } = await supabaseClient
+    // Verifica se o usuário já existe no banco
+    const { data: existing, error: fetchError } = await supabaseClient
       .from('wmss_users')
-      .upsert(payload, { onConflict: 'usuario' });
-    if (error) throw error;
+      .select('usuario')
+      .eq('usuario', usuario)
+      .maybeSingle();
+    if (fetchError) throw fetchError;
+
+    if (existing) {
+      // EDIÇÃO: atualiza apenas os campos necessários. Senha só é alterada se preenchida.
+      const updatePayload = { nome, perfil, ativo };
+      if (senha) updatePayload.senha = senha;
+
+      const { error } = await supabaseClient
+        .from('wmss_users')
+        .update(updatePayload)
+        .eq('usuario', usuario);
+      if (error) throw error;
+      await logAction('EDITAR_USUARIO', `usuario: ${usuario} | perfil: ${perfil} | ativo: ${ativo}`);
+      setStatus(el.userStatus, `Usuário ${usuario} atualizado com sucesso.`, 'success');
+    } else {
+      // CRIAÇÃO: senha obrigatória
+      if (!senha) return setStatus(el.userStatus, 'Informe a senha para criar um novo usuário.', 'error');
+      const { error } = await supabaseClient
+        .from('wmss_users')
+        .insert({ usuario, nome, senha, perfil, ativo });
+      if (error) throw error;
+      await logAction('CRIAR_USUARIO', `usuario: ${usuario} | perfil: ${perfil}`);
+      setStatus(el.userStatus, `Usuário ${usuario} criado com sucesso.`, 'success');
+    }
+
     event.target.reset();
     if (event.target.ativo) event.target.ativo.checked = true;
     await loadUsers();
-    setStatus(el.userStatus, 'Usuário salvo com sucesso.', 'success');
   } catch (error) {
     setStatus(el.userStatus, `Erro ao salvar usuário: ${error.message}`, 'error');
   }
 }
+
+// ─── Log de ações ─────────────────────────────────────────────────────────────
+async function logAction(acao, detalhe) {
+  if (!supabaseClient || !currentUser) return;
+  try {
+    await supabaseClient.from('wmss_logs').insert({
+      usuario: currentUser.id,
+      acao,
+      detalhe: detalhe || null
+    });
+  } catch (_) { /* log é melhor-esforço */ }
+}
+
+async function loadLogs() {
+  if (!supabaseClient) return [];
+  const { data, error } = await supabaseClient
+    .from('wmss_logs')
+    .select('usuario, acao, detalhe, created_at')
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (error) throw error;
+  return data ?? [];
+}
+
+function renderLogsScreen(logs) {
+  const filterEl = document.getElementById('logsUserFilter');
+  const usuarios = [...new Set(logs.map((l) => l.usuario))].sort();
+  if (filterEl) {
+    const current = filterEl.value;
+    filterEl.innerHTML = '<option value="">Todos os usuários</option>' +
+      usuarios.map((u) => '<option value="' + u + '"' + (u === current ? ' selected' : '') + '>' + u + '</option>').join('');
+  }
+  const selectedUser = filterEl ? filterEl.value : '';
+  const filtered = selectedUser ? logs.filter((l) => l.usuario === selectedUser) : logs;
+  const tbody = document.querySelector('#logsTable tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  filtered.forEach((l) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + l.usuario + '</td><td>' + l.acao + '</td><td>' + (l.detalhe || '') + '</td><td>' +
+      new Date(l.created_at).toLocaleString('pt-BR') + '</td>';
+    tbody.appendChild(tr);
+  });
+  const exportBtn = document.getElementById('logsExportBtn');
+  if (exportBtn) exportBtn._logsData = filtered;
+}
+
+let _logsCache = [];
+
+async function openLogsScreen() {
+  const screen = document.getElementById('logsScreen');
+  if (!screen) return;
+  screen.classList.remove('hidden');
+  document.getElementById('appShell').classList.add('hidden');
+  try {
+    _logsCache = await loadLogs();
+    renderLogsScreen(_logsCache);
+    const filterEl = document.getElementById('logsUserFilter');
+    if (filterEl) {
+      filterEl.onchange = function() { renderLogsScreen(_logsCache); };
+    }
+    const exportBtn = document.getElementById('logsExportBtn');
+    if (exportBtn) {
+      exportBtn.onclick = function() {
+        const data = exportBtn._logsData || [];
+        if (!data.length) return;
+        exportWorkbook('logs_wmss.xlsx', [{
+          name: 'Logs',
+          data: data.map((l) => ({
+            usuario: l.usuario,
+            acao: l.acao,
+            detalhe: l.detalhe || '',
+            data_hora: new Date(l.created_at).toLocaleString('pt-BR')
+          }))
+        }]);
+      };
+    }
+  } catch (error) {
+    alert('Erro ao carregar logs: ' + error.message);
+  }
+}
+
+function closeLogsScreen() {
+  document.getElementById('logsScreen').classList.add('hidden');
+  document.getElementById('appShell').classList.remove('hidden');
+}
+
+// ─── Apagar contagem do banco ──────────────────────────────────────────────────
+async function handleDeleteContagem() {
+  const scope = el.contagemScope ? el.contagemScope.value : '';
+  const side = (el.contagemSide ? el.contagemSide.value : '') || 'ALL';
+  const positions = getContagemPositions(scope, side);
+  if (!positions.length) return setStatus(el.contagemStatus, 'Nenhuma posição encontrada.', 'error');
+
+  const confirmMsg = 'Isso vai APAGAR do banco todas as posições da área "' + scope + '"' +
+    (side !== 'ALL' ? ' lado ' + side : '') + '.\n\nEssa ação não pode ser desfeita. Confirmar?';
+  if (!confirm(confirmMsg)) return;
+  if (!supabaseClient) return setStatus(el.contagemStatus, 'Banco não conectado.', 'error');
+
+  try {
+    const areas = [...new Set(positions.map((p) => normalizeAreaCode(p)))];
+    const { error } = await supabaseClient.from('estoque_area').delete().in('area', areas);
+    if (error) throw error;
+    positions.forEach((p) => saveContagemEntries(p, []));
+    renderContagemTable();
+    await logAction('APAGAR_CONTAGEM_BANCO', 'scope: ' + scope + ' | lado: ' + side + ' | áreas: ' + areas.join(','));
+    await loadAll();
+    setStatus(el.contagemStatus, 'Contagem da área ' + scope + ' apagada do banco (' + areas.length + ' posição(ões)).', 'success');
+  } catch (error) {
+    setStatus(el.contagemStatus, 'Erro ao apagar contagem: ' + error.message, 'error');
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 
 function createClient() {
   try {
@@ -1869,6 +2009,7 @@ function setupContagem() {
     setStatus(el.contagemStatus, 'Cálculo atualizado.', 'success');
   });
   el.contagemExportBtn?.addEventListener('click', exportContagemExcel);
+  document.getElementById('contagemDeleteBtn')?.addEventListener('click', handleDeleteContagem);
 }
 
 async function handleEstoqueSubmit(event) {
@@ -2848,6 +2989,8 @@ function init() {
     showFeedback(enabled ? 'Auto planilha ativado.' : 'Auto planilha desativado.');
   });
   createClient();
+  document.getElementById('logsBtn')?.addEventListener('click', openLogsScreen);
+  document.getElementById('logsBackBtn')?.addEventListener('click', closeLogsScreen);
 }
 
 init();
