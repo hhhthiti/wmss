@@ -266,6 +266,11 @@ async function authenticateUser(user, pass) {
 }
 
 function setupLogin() {
+  // Restaura sessão salva no localStorage
+  const savedSession = storageGetJSON('wmss_session', null);
+  if (savedSession && savedSession.id && savedSession.role) {
+    currentUser = savedSession;
+  }
   toggleAuthMode('login');
   updateShellVisibility();
   el.showLoginBtn?.addEventListener('click', () => toggleAuthMode('login'));
@@ -291,6 +296,7 @@ function setupLogin() {
       id: auth.usuario || user,
       role: perfil === 'MASTER' ? 'master' : (perfil === 'ANALISTA' ? 'analyst' : 'common')
     };
+    storageSet('wmss_session', JSON.stringify(currentUser));
     const roleLabel = currentUser.role === 'master'
       ? 'mestre'
       : (currentUser.role === 'analyst' ? 'analista' : 'usuário');
@@ -337,6 +343,7 @@ function setupLogin() {
 
   el.logoutBtn?.addEventListener('click', () => {
     currentUser = null;
+    storageSet('wmss_session', '');
     updateShellVisibility();
     toggleAuthMode('login');
     setStatus(el.loginStatus, 'Sessão encerrada. Faça login para acessar as áreas.', '');
@@ -346,7 +353,11 @@ function setupLogin() {
   });
   applyRoleVisibility();
   updateShellVisibility();
-  setStatus(el.loginStatus, 'Faça login para continuar.', '');
+  if (currentUser) {
+    setStatus(el.loginStatus, '', '');
+  } else {
+    setStatus(el.loginStatus, 'Faça login para continuar.', '');
+  }
 }
 
 function setStatus(target, message, type = '') {
@@ -422,66 +433,26 @@ function exportContagemLogEntry(entryId) {
   ]);
 }
 
-// ─── logAction: registra no Supabase (melhor-esforço) ────────────────────────
-async function logAction(acao, detalhe) {
-  if (!supabaseClient || !currentUser) return;
-  try {
-    await supabaseClient.from('wmss_logs').insert({
-      usuario: currentUser.id,
-      acao,
-      detalhe: detalhe || null
-    });
-  } catch (_) { /* silencioso */ }
-}
-
-// ─── Logs: carrega e renderiza da tabela wmss_logs ────────────────────────────
-let _logsCache = [];
-
-async function loadLogsFromDb() {
-  if (!supabaseClient) return [];
-  const { data, error } = await supabaseClient
-    .from('wmss_logs')
-    .select('usuario, acao, detalhe, created_at')
-    .order('created_at', { ascending: false })
-    .limit(500);
-  if (error) throw error;
-  return data ?? [];
-}
-
-function renderLogsTable(logs) {
+function renderLogsTable() {
   if (!el.logsTableBody) return;
   el.logsTableBody.innerHTML = '';
-
-  const filterEl = document.getElementById('logsUserFilter');
-  if (filterEl) {
-    const usuarios = [...new Set((logs || []).map((l) => l.usuario))].sort();
-    const current = filterEl.value;
-    filterEl.innerHTML = '<option value="">Todos os usuários</option>' +
-      usuarios.map((u) => '<option value="' + u + '"' + (u === current ? ' selected' : '') + '>' + u + '</option>').join('');
-  }
-
-  const selectedUser = filterEl ? filterEl.value : '';
-  const filtered = selectedUser ? (logs || []).filter((l) => l.usuario === selectedUser) : (logs || []);
-
-  if (!filtered.length) {
+  (contagemUploadLogs || []).forEach((entry) => {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td colspan="4">Sem registros encontrados.</td>';
-    el.logsTableBody.appendChild(tr);
-    return;
-  }
-
-  filtered.forEach((l) => {
-    const tr = document.createElement('tr');
-    tr.innerHTML =
-      '<td>' + (l.usuario || '-') + '</td>' +
-      '<td>' + (l.acao || '-') + '</td>' +
-      '<td>' + (l.detalhe || '') + '</td>' +
-      '<td>' + new Date(l.created_at).toLocaleString('pt-BR') + '</td>';
+    const created = new Date(entry.created_at);
+    tr.innerHTML = `
+      <td>${Number.isNaN(created.getTime()) ? entry.created_at : created.toLocaleString('pt-BR')}</td>
+      <td>${entry.usuario || '-'}</td>
+      <td>${(entry.rows || []).length}</td>
+      <td><button type="button" class="secondary" data-log-export="${entry.id}">Baixar cópia</button></td>
+    `;
+    tr.querySelector('[data-log-export]')?.addEventListener('click', () => exportContagemLogEntry(entry.id));
     el.logsTableBody.appendChild(tr);
   });
-
-  const exportBtn = document.getElementById('logsExportBtn');
-  if (exportBtn) exportBtn._logsData = filtered;
+  if (!contagemUploadLogs.length) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="4">Sem logs de contagem até o momento.</td>';
+    el.logsTableBody.appendChild(tr);
+  }
 }
 
 function normalizeAreaCode(value) {
@@ -869,7 +840,6 @@ async function handleUserSubmit(event) {
     event.target.reset();
     if (event.target.ativo) event.target.ativo.checked = true;
     await loadUsers();
-    await logAction('SALVAR_USUARIO', 'usuario: ' + usuario + ' | perfil: ' + perfil + ' | ativo: ' + ativo);
     setStatus(el.userStatus, 'Usuário salvo com sucesso.', 'success');
   } catch (error) {
     if (String(error.message || '').includes('wmss_users_perfil_check')) {
@@ -930,7 +900,10 @@ async function loadAll() {
   if (!supabaseClient) return;
   try {
     await Promise.all([loadEstoque(), loadMovimentacoes(), loadProdutos(), loadUsers()]);
-    showFeedback('Dados carregados com sucesso.');
+    if (currentUser) {
+      applyRoleVisibility();
+      showFeedback('Dados carregados com sucesso.');
+    }
   } catch (error) {
     showFeedback(`Erro ao carregar dados: ${error.message}`, 'error');
   }
@@ -1834,7 +1807,6 @@ async function applyContagemToConsulta() {
 
     await loadAll();
     setStatus(el.contagemStatus, `Consulta substituída para ${targetAreas.length} posição(ões) da área ${scope}${side !== 'ALL' ? ` (${side})` : ''}. Confirmadas: ${confirmedRows.length}. Herdadas da conferência: ${carryRows.length}.`, 'success');
-    await logAction('APLICAR_CONTAGEM', 'scope: ' + scope + ' | confirmadas: ' + confirmedRows.length);
     showFeedback('Contagem aplicada na consulta com sucesso.');
   } catch (error) {
     setStatus(el.contagemStatus, `Erro ao atualizar consulta pela contagem: ${error.message}`, 'error');
@@ -2211,7 +2183,6 @@ async function handleExpedicaoSubmit(event) {
 
     await insertMovimentacaoExpedicao(area, sku, tipo, paletes);
 
-    await logAction('EXPEDICAO', 'SKU ' + sku + ' | ' + paletes + ' paletes | área ' + area);
     showFeedback('Expedição registrada e estoque atualizado.');
     event.target.reset();
     await loadAll();
@@ -2539,8 +2510,7 @@ async function handleImportSubmit(event) {
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
     const { insertedOrUpdated, deleted } = await processImportRows(rows, Boolean(el.importSyncMode?.checked));
-    await logAction('IMPORTAR_PLANILHA', 'incluídos/atualizados: ' + insertedOrUpdated + ' | apagados: ' + deleted);
-    showFeedback(`Importação concluída (${el.importSyncMode?.checked ? 'sincronização agressiva' : 'modo seguro'}). Incluídos/atualizados: ${insertedOrUpdated}. Apagados: ${deleted}`);
+    showFeedback(`Importação concluída (${el.importSyncMode?.checked ? 'sincronização agressiva' : 'modo seguro'}). Incluídos/atualizados: ${insertedOrUpdated}. Apagados: ${deleted}.`);
     el.importForm.reset();
     if (el.importFileName) el.importFileName.textContent = 'Nenhum arquivo selecionado';
   } catch (error) {
@@ -3029,43 +2999,12 @@ function setupMb51Mb52() {
 }
 
 function setupLogs() {
-  // Abre a aba de logs
+  renderLogsTable();
   el.openLogsBtn?.addEventListener('click', () => {
     document.querySelector('.tab-btn[data-tab="logs"]')?.click();
   });
   el.logsBackBtn?.addEventListener('click', () => {
     document.querySelector('.tab-btn[data-tab="cadastro"]')?.click();
-  });
-
-  // Ao entrar na aba logs, busca do Supabase
-  document.querySelector('.tab-btn[data-tab="logs"]')?.addEventListener('click', async () => {
-    setStatus(el.logsTableBody ? { textContent: '', className: '' } : null, '', '');
-    try {
-      _logsCache = await loadLogsFromDb();
-      renderLogsTable(_logsCache);
-    } catch (err) {
-      if (el.logsTableBody) {
-        el.logsTableBody.innerHTML = '<tr><td colspan="4">Erro ao carregar logs: ' + err.message + '</td></tr>';
-      }
-    }
-  });
-
-  // Filtro por usuário
-  document.getElementById('logsUserFilter')?.addEventListener('change', () => renderLogsTable(_logsCache));
-
-  // Exportar Excel filtrado
-  document.getElementById('logsExportBtn')?.addEventListener('click', () => {
-    const data = document.getElementById('logsExportBtn')?._logsData || [];
-    if (!data.length) return showFeedback('Nenhum log para exportar.', 'error');
-    exportWorkbook('logs_wmss.xlsx', [{
-      name: 'Logs',
-      data: data.map((l) => ({
-        usuario: l.usuario,
-        acao: l.acao,
-        detalhe: l.detalhe || '',
-        data_hora: new Date(l.created_at).toLocaleString('pt-BR')
-      }))
-    }]);
   });
 }
 
