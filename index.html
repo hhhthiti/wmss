@@ -330,11 +330,12 @@
                 <option value="ESTRUTURA">Estrutura</option>
                 <option value="CHAO">Chão</option>
                 <option value="TISSUE">Tissue</option>
-                <option value="TTD">TTD</option>
+                <option value="TTD">Livro</option>
+                <option value="CAFE">Café</option>
                 <option value="LONIL">Lonil</option>
               </select>
             </label>
-            <label id="contagemSideLabel">Lado (Rua B / Tissue / TTD / Lonil)
+            <label id="contagemSideLabel">Lado (Rua B / Tissue / Livro / Café / Lonil)
               <select id="contagemSide">
                 <option value="ALL">Direito + Esquerdo</option>
                 <option value="D">Somente direito</option>
@@ -357,7 +358,8 @@
               <label class="inline-check"><input type="checkbox" class="turno-carry-scope" value="ESTRUTURA" /> Estrutura</label>
               <label class="inline-check"><input type="checkbox" class="turno-carry-scope" value="CHAO" /> Chão</label>
               <label class="inline-check"><input type="checkbox" class="turno-carry-scope" value="TISSUE" /> Tissue</label>
-              <label class="inline-check"><input type="checkbox" class="turno-carry-scope" value="TTD" /> TTD</label>
+              <label class="inline-check"><input type="checkbox" class="turno-carry-scope" value="TTD" /> Livro</label>
+              <label class="inline-check"><input type="checkbox" class="turno-carry-scope" value="CAFE" /> Café</label>
               <label class="inline-check"><input type="checkbox" class="turno-carry-scope" value="LONIL" /> Lonil</label>
             </fieldset>
             <div class="actions">
@@ -375,12 +377,8 @@
               <thead>
                 <tr>
                   <th>+</th><th>Posição</th><th>SKU</th>
-                  <th>Confirmar?</th>
-                  <th>Blocado no local?</th>
-                  <th>Prof. base</th><th>Larg. base</th>
-                  <th>Última camada?</th><th>Paletes última</th>
-                  <th>Fardos faltando (palete não inteiro)</th>
-                  <th>Usar total editável?</th><th>Total editável</th><th>Paletes</th><th>Fardos</th>
+                  <th>Fração (fardos no palete fracionado)</th>
+                  <th>Paletes no blocado</th><th>Paletes</th><th>Fardos</th>
                 </tr>
               </thead>
               <tbody></tbody>

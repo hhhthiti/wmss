@@ -1016,6 +1016,7 @@ function getDepositoFromArea(area) {
   const a = normalizeAreaCode(area);
   if (a.startsWith('TISSUE')) return 'TISSUE';
   if (a.startsWith('TTD')) return 'TTD';
+  if (a.startsWith('CAFE')) return 'CAFE';
   if (a.startsWith('LONIL')) return 'LONIL';
   if (/^(R\d+\.\d+|CHAOESTRUTURA)$/.test(a)) return 'ESTRUTURA';
   return 'PRINCIPAL';
@@ -1140,6 +1141,7 @@ function inferContagemScopeFromPosicao(posicao) {
   if (p.startsWith('CHAO_')) return 'CHAO';
   if (/^(R\d+\.\d+|CHAOESTRUTURA)$/.test(p)) return 'ESTRUTURA';
   if (p.startsWith('TISSUE')) return 'TISSUE';
+  if (p.startsWith('CAFE')) return 'CAFE';
   if (p.startsWith('LONIL')) return 'LONIL';
   if (p.startsWith('TTD')) return 'TTD';
   return null;
@@ -1365,7 +1367,7 @@ function expandRangeLabel(label) {
 
 function shouldShowContagemSide() {
   const scope = normalizeText(el.contagemScope?.value);
-  return ['B', 'TISSUE', 'TTD', 'LONIL', 'CHAO'].includes(scope);
+  return ['B', 'TISSUE', 'TTD', 'CAFE', 'LONIL', 'CHAO'].includes(scope);
 }
 
 function updateContagemSideVisibility() {
@@ -1395,11 +1397,11 @@ function getContagemPositions(scope, side = 'ALL') {
   }
   if (s === 'ESTRUTURA') return [...new Set(estruturaLabels.flatMap(expandRangeLabel))];
   if (s === 'CHAO') {
-    if (side === 'D') return ['CHAO_PRINCIPAL_D', 'CHAO_TISSUE_D', 'CHAO_TTD_D', 'CHAO_LONIL_D'];
-    if (side === 'E') return ['CHAO_PRINCIPAL_E', 'CHAO_TISSUE_E', 'CHAO_TTD_E', 'CHAO_LONIL_E'];
-    return ['CHAO_PRINCIPAL_D', 'CHAO_PRINCIPAL_E', 'CHAO_TISSUE_D', 'CHAO_TISSUE_E', 'CHAO_TTD_D', 'CHAO_TTD_E', 'CHAO_LONIL_D', 'CHAO_LONIL_E'];
+    if (side === 'D') return ['CHAO_PRINCIPAL_D', 'CHAO_TISSUE_D', 'CHAO_TTD_D', 'CHAO_CAFE_D', 'CHAO_LONIL_D'];
+    if (side === 'E') return ['CHAO_PRINCIPAL_E', 'CHAO_TISSUE_E', 'CHAO_TTD_E', 'CHAO_CAFE_E', 'CHAO_LONIL_E'];
+    return ['CHAO_PRINCIPAL_D', 'CHAO_PRINCIPAL_E', 'CHAO_TISSUE_D', 'CHAO_TISSUE_E', 'CHAO_TTD_D', 'CHAO_TTD_E', 'CHAO_CAFE_D', 'CHAO_CAFE_E', 'CHAO_LONIL_D', 'CHAO_LONIL_E'];
   }
-  if (['TISSUE', 'TTD', 'LONIL'].includes(s)) {
+  if (['TISSUE', 'TTD', 'CAFE', 'LONIL'].includes(s)) {
     const fromDb = cache.estoque
       .map((row) => normalizeAreaCode(row.area))
       .filter((area) => area.startsWith(s));
@@ -1407,10 +1409,10 @@ function getContagemPositions(scope, side = 'ALL') {
       .map((area) => normalizeAreaCode(area))
       .filter((area) => area.startsWith(s));
     const maxPos = fromDb.reduce((max, area) => {
-      const m = area.match(/^(?:TISSUE|TTD|LONIL)(\d+)/);
+      const m = area.match(/^(?:TISSUE|TTD|CAFE|LONIL)(\d+)/);
       return m ? Math.max(max, Number(m[1])) : max;
     }, fromContagem.reduce((max, area) => {
-      const m = area.match(/^(?:TISSUE|TTD|LONIL)(\d+)/);
+      const m = area.match(/^(?:TISSUE|TTD|CAFE|LONIL)(\d+)/);
       return m ? Math.max(max, Number(m[1])) : max;
     }, 0));
     const qty = Math.max(maxPos || 0, 80);
@@ -1441,7 +1443,7 @@ function getContagemEntries(posicao) {
     paletesTerceira: Number(item.paletesTerceira || 0),
     fardosFaltando: Number(item.fardosFaltando || 0),
     totalManual: Number(item.totalManual || 0),
-    usarTotalManual: Boolean(item.usarTotalManual),
+    usarTotalManual: typeof item.usarTotalManual === 'boolean' ? item.usarTotalManual : true,
     blocadoPresente: typeof item.blocadoPresente === 'boolean' ? item.blocadoPresente : true,
     confirmada: Boolean(item.confirmada),
     tipoPlt: normalizeText(item.tipoPlt)
@@ -1457,7 +1459,7 @@ function createEmptyContagemEntry() {
     paletesTerceira: 0,
     fardosFaltando: 0,
     totalManual: 0,
-    usarTotalManual: false,
+    usarTotalManual: true,
     blocadoPresente: true,
     confirmada: false,
     tipoPlt: ''
@@ -1488,25 +1490,18 @@ function removeContagemEntry(posicao, idx) {
 function computeContagem(posicao, entry, scope = el.contagemScope?.value) {
   const st = { ...createEmptyContagemEntry(), ...(entry || {}) };
   const isEstrutura = normalizeText(scope) === 'ESTRUTURA';
-  const ativo = st.blocadoPresente !== false;
-  if (!ativo) {
-    const paletes = st.usarTotalManual && Number(st.totalManual) > 0 ? Number(st.totalManual) : 0;
-    const fpp = getFardosPorPalete(st.sku);
-    const faltando = Math.max(0, st.fardosFaltando || 0);
-    const fardosBrutos = fpp ? paletes * fpp : null;
-    const fardos = Number.isFinite(fardosBrutos) ? Math.max(0, fardosBrutos - faltando) : null;
-    return { ...st, posicao, paletes, paletesCalculados: 0, fardos };
-  }
   const basePrimeira = Math.max(0, st.profundidade1 * st.largura1);
   const base = isEstrutura ? (normalizeText(st.sku) ? 1 : 0) : basePrimeira;
   const terceira = st.terceiraCamada ? Math.max(0, st.paletesTerceira) : 0;
-  const paletesCalculados = base + terceira;
+  const paletesBlocado = base + terceira;
+  const paletesCalculados = paletesBlocado;
   const paletes = st.usarTotalManual && Number(st.totalManual) > 0 ? Number(st.totalManual) : paletesCalculados;
   const fpp = getFardosPorPalete(st.sku);
-  const faltando = Math.max(0, st.fardosFaltando || 0);
-  const fardosBrutos = fpp ? paletes * fpp : null;
-  const fardos = Number.isFinite(fardosBrutos) ? Math.max(0, fardosBrutos - faltando) : null;
-  return { ...st, posicao, paletes, paletesCalculados, fardos };
+  const fracaoFardos = Math.max(0, st.fardosFaltando || 0);
+  const paletesContabilizados = fracaoFardos > 0 ? Math.max(0, paletes - 1) : paletes;
+  const fardosBrutos = fpp ? paletesContabilizados * fpp : null;
+  const fardos = Number.isFinite(fardosBrutos) ? Math.max(0, fardosBrutos + fracaoFardos) : (fracaoFardos > 0 ? fracaoFardos : null);
+  return { ...st, posicao, paletes: paletesContabilizados, paletesCalculados, paletesBlocado, fracaoFardos, fardos };
 }
 
 function dividirQuantidade(total, slots) {
@@ -1599,7 +1594,7 @@ async function importContagemFromPlanilha() {
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
     const scope = el.contagemScope?.value;
-    const positionsAll = new Set(['A', 'B', 'C', 'ESTRUTURA', 'CHAO', 'TISSUE', 'LONIL', 'TTD']
+    const positionsAll = new Set(['A', 'B', 'C', 'ESTRUTURA', 'CHAO', 'TISSUE', 'LONIL', 'TTD', 'CAFE']
       .flatMap((s) => getContagemPositions(s, 'ALL')));
     const normalizeHeader = (key) => String(key || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
     const parseDepositoScope = (deposito) => {
@@ -1608,6 +1603,7 @@ async function importContagemFromPlanilha() {
       if (dep.includes('ESTRUT')) return 'ESTRUTURA';
       if (dep.includes('CHAO')) return 'CHAO';
       if (dep.includes('TISSUE') || dep.includes('TSUI')) return 'TISSUE';
+      if (dep.includes('CAFE') || dep.includes('CAFÉ')) return 'CAFE';
       if (dep.includes('LONIL')) return 'LONIL';
       if (dep.includes('TTD') || dep.includes('TTT')) return 'TTD';
       if (dep.includes('PRINCIPAL')) return 'PRINCIPAL';
@@ -1641,6 +1637,7 @@ async function importContagemFromPlanilha() {
         if (!guessScope && /^B\d+[DE]?$/.test(area)) guessScope = 'B';
         if (!guessScope && /^C\d+/.test(area)) guessScope = 'C';
         if (!guessScope && area.startsWith('TISSUE')) guessScope = 'TISSUE';
+        if (!guessScope && area.startsWith('CAFE')) guessScope = 'CAFE';
         if (!guessScope && area.startsWith('LONIL')) guessScope = 'LONIL';
         if (!guessScope && area.startsWith('TTD')) guessScope = 'TTD';
         if (!guessScope && /^(R\d+\.\d+|CHAOESTRUTURA)$/.test(area)) guessScope = 'ESTRUTURA';
@@ -1657,11 +1654,12 @@ async function importContagemFromPlanilha() {
           if (row.depositoScope === 'PRINCIPAL' || row.deposito.includes('PRINCIPAL')) dep = 'PRINCIPAL';
           else if (row.depositoScope === 'TISSUE' || row.deposito.includes('TISSUE') || row.deposito.includes('TSUI')) dep = 'TISSUE';
           else if (row.depositoScope === 'TTD' || row.deposito.includes('TTD') || row.deposito.includes('TTT')) dep = 'TTD';
+          else if (row.depositoScope === 'CAFE' || row.deposito.includes('CAFE') || row.deposito.includes('CAFÉ')) dep = 'CAFE';
           else if (row.depositoScope === 'LONIL' || row.deposito.includes('LONIL')) dep = 'LONIL';
           area = `CHAO_${dep}_${sideFromQuadrante}`;
         }
 
-        if (!area && ['TISSUE', 'TTD', 'LONIL'].includes(guessScope)) {
+        if (!area && ['TISSUE', 'TTD', 'CAFE', 'LONIL'].includes(guessScope)) {
           const sideFromQuadrante = row.quadrante.includes('DIREIT') ? 'D' : (row.quadrante.includes('ESQUERD') ? 'E' : '');
           const preferredSide = row.lado === 'DIREITO' ? 'D'
             : row.lado === 'ESQUERDO' ? 'E'
@@ -1688,7 +1686,7 @@ async function importContagemFromPlanilha() {
       })
       .filter((row) => row && (
         positionsAll.has(normalizeAreaCode(row.area))
-        || /^(?:TISSUE|TTD|LONIL)\d+[DE]$/.test(normalizeAreaCode(row.area))
+        || /^(?:TISSUE|TTD|CAFE|LONIL)\d+[DE]$/.test(normalizeAreaCode(row.area))
         || /^(?:R\d+\.\d+|CHAOESTRUTURA|TUNEL|CHAO_[A-Z]+_[DE]|CHAO_PRINCIPAL)$/.test(normalizeAreaCode(row.area))
       ))
       .sort((a, b) => normalizeAreaCode(a.area).localeCompare(normalizeAreaCode(b.area), 'pt-BR', { numeric: true }));
@@ -1725,7 +1723,7 @@ async function importContagemFromPlanilha() {
     });
 
     renderContagemTable();
-    setStatus(el.contagemStatus, `Planilha carregada. ${validRows.length} linha(s) aplicadas para conferência manual. Marque "Confirmar" nas linhas corretas e clique em "Atualizar consulta".`, 'success');
+    setStatus(el.contagemStatus, `Planilha carregada. ${validRows.length} linha(s) aplicadas para conferência manual. Ajuste paletes/fração nas linhas corretas e clique em "Atualizar consulta".`, 'success');
   } catch (error) {
     setStatus(el.contagemStatus, `Erro ao ler planilha da contagem: ${error.message}`, 'error');
   }
@@ -1765,7 +1763,7 @@ async function applyContagemToConsulta() {
   const confirmedRows = positions
     .flatMap((posicao) => getContagemEntries(posicao)
       .map((entry) => computeContagem(posicao, entry, scope))
-      .filter((row) => row.confirmada && normalizeText(row.sku) && row.paletes > 0)
+      .filter((row) => normalizeText(row.sku) && row.paletes > 0)
       .map((row) => ({
         area: normalizeAreaCode(row.posicao),
         sku: Number(row.sku),
@@ -1779,7 +1777,7 @@ async function applyContagemToConsulta() {
     ...positions
       .filter((posicao) => {
         const entries = getContagemEntries(posicao);
-        return entries.some((entry) => hasManualContagemData(entry) || Boolean(entry?.confirmada));
+        return entries.some((entry) => hasManualContagemData(entry));
       })
       .map((posicao) => normalizeAreaCode(posicao)),
     ...carryRows.map((row) => normalizeAreaCode(row.area))
@@ -1806,7 +1804,7 @@ async function applyContagemToConsulta() {
     addContagemUploadLog(rowsToUpsert);
 
     await loadAll();
-    setStatus(el.contagemStatus, `Consulta substituída para ${targetAreas.length} posição(ões) da área ${scope}${side !== 'ALL' ? ` (${side})` : ''}. Confirmadas: ${confirmedRows.length}. Herdadas da conferência: ${carryRows.length}.`, 'success');
+    setStatus(el.contagemStatus, `Consulta substituída para ${targetAreas.length} posição(ões) da área ${scope}${side !== 'ALL' ? ` (${side})` : ''}. Linhas aplicadas: ${confirmedRows.length}. Herdadas da conferência: ${carryRows.length}.`, 'success');
     showFeedback('Contagem aplicada na consulta com sucesso.');
   } catch (error) {
     setStatus(el.contagemStatus, `Erro ao atualizar consulta pela contagem: ${error.message}`, 'error');
@@ -1889,7 +1887,6 @@ function renderContagemTable() {
   if (!el.contagemBody) return;
   updateContagemSideVisibility();
   const scope = el.contagemScope?.value;
-  const isEstrutura = normalizeText(scope) === 'ESTRUTURA';
   const positions = getContagemPositions(scope, el.contagemSide?.value || 'ALL');
   el.contagemBody.innerHTML = '';
   const computedRows = [];
@@ -1911,15 +1908,8 @@ function renderContagemTable() {
         <td>${plusOrRemove}</td>
         <td>${posLabel}</td>
         <td><input class="contagem-sku-input" data-posicao="${posicao}" data-entry-idx="${idx}" data-field="sku" value="${entry.sku || ''}" /></td>
-        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="confirmada" type="checkbox" ${entry.confirmada ? 'checked' : ''} /></td>
-        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="blocadoPresente" type="checkbox" ${entry.blocadoPresente ? 'checked' : ''} /></td>
-        <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="profundidade1" type="number" min="0" value="${entry.profundidade1 || ''}" />`}</td>
-        <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="largura1" type="number" min="0" value="${entry.largura1 || ''}" />`}</td>
-        <td>${!entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="terceiraCamada" type="checkbox" ${entry.terceiraCamada ? 'checked' : ''} />`}</td>
-        <td>${!entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="paletesTerceira" type="number" min="0" value="${entry.paletesTerceira || ''}" ${entry.terceiraCamada ? '' : 'disabled'} />`}</td>
         <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="fardosFaltando" type="number" min="0" value="${entry.fardosFaltando || ''}" /></td>
-        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="usarTotalManual" type="checkbox" ${entry.usarTotalManual ? 'checked' : ''} /></td>
-        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="totalManual" type="number" min="0" value="${entry.totalManual || ''}" ${entry.usarTotalManual ? '' : 'disabled'} /></td>
+        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="totalManual" type="number" min="0" value="${entry.totalManual || ''}" /></td>
         <td>${result.paletes}</td>
         <td>${Number.isFinite(result.fardos) ? result.fardos : '-'}</td>
       `;
@@ -1955,14 +1945,9 @@ function renderContagemTable() {
       const idx = Number(entryIdx || 0);
       const current = { ...entries[idx] };
       current[field] = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
-      if (field === 'blocadoPresente' && !event.target.checked) {
-        current.profundidade1 = 0;
-        current.largura1 = 0;
-        current.terceiraCamada = false;
-        current.paletesTerceira = 0;
-      }
-      if (field === 'terceiraCamada' && !event.target.checked) current.paletesTerceira = 0;
-      if (field === 'usarTotalManual' && !event.target.checked) current.totalManual = 0;
+      current.usarTotalManual = true;
+      current.confirmada = true;
+      current.blocadoPresente = true;
       entries[idx] = current;
       saveContagemEntries(posicao, entries);
       renderContagemTable();
@@ -1986,7 +1971,7 @@ function focusNextContagemInput(currentInput) {
 }
 
 function exportContagemExcel() {
-  const allScopes = ['A', 'B', 'C', 'ESTRUTURA', 'TISSUE', 'TTD', 'LONIL'];
+  const allScopes = ['A', 'B', 'C', 'ESTRUTURA', 'TISSUE', 'TTD', 'CAFE', 'LONIL'];
   const rows = allScopes
     .flatMap((scope) => getContagemPositions(scope, 'ALL')
       .flatMap((p) => getContagemEntries(p).map((entry, idx) => ({ ...computeContagem(p, entry, scope), entry_idx: idx + 1, scope }))))
@@ -2002,8 +1987,7 @@ function exportContagemExcel() {
       ultima_camada: row.terceiraCamada ? 'SIM' : 'NAO',
       paletes_ultima: row.terceiraCamada ? row.paletesTerceira : 0,
       fardos_faltando: row.fardosFaltando || 0,
-      usar_total_editavel: row.usarTotalManual ? 'SIM' : 'NAO',
-      total_editavel: row.totalManual || 0,
+      paletes_no_blocado: row.totalManual || 0,
       paletes_totais: row.paletes,
       fardos_totais: Number.isFinite(row.fardos) ? row.fardos : ''
     }));
@@ -2044,7 +2028,7 @@ function setupContagem() {
         ...entry,
         confirmada: false,
         blocadoPresente: true,
-        usarTotalManual: false,
+        usarTotalManual: true,
         terceiraCamada: false
       }));
       saveContagemEntries(posicao, entries);
@@ -2348,6 +2332,15 @@ function mapImportRow(rawRow) {
       if (/^LONIL\d+[DE]$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
       if (q === 'D' || q === 'E') return `LONIL01${q}`;
       return `LONIL01${side}`;
+    }
+
+    if (dep.includes('CAFE') || dep.includes('CAFÉ')) {
+      const side = ladoRaw.startsWith('E') || q.includes('ESQUER') ? 'E' : 'D';
+      if (q.includes('CHAO')) return `CHAO_CAFE_${side}`;
+      if (/^\d+$/.test(q)) return `CAFE${String(Number(q)).padStart(2, '0')}${side}`;
+      if (/^CAFE\d+[DE]$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (q === 'D' || q === 'E') return `CAFE01${q}`;
+      return `CAFE01${side}`;
     }
 
     if (dep.includes('TTD') || dep.includes('TTT')) {
