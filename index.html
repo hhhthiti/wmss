@@ -11,40 +11,10 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   </head>
   <body>
-    <section id="authScreen" class="auth-screen">
-      <div class="card auth-card">
-        <h1>WMSS - Controle de Estoque</h1>
-        <p class="helper-text">Acesse com seu usuário para entrar no sistema.</p>
-        <div class="actions">
-          <button id="showLoginBtn" type="button">Login</button>
-          <button id="showRegisterBtn" type="button" class="secondary">Registro</button>
-        </div>
-
-        <form id="loginForm" class="grid form-grid">
-          <label>Usuário <input id="loginUser" placeholder="Ex.: 30152962" /></label>
-          <label>Senha <input id="loginPass" type="password" placeholder="Senha" /></label>
-          <div class="actions"><button type="submit">Entrar</button></div>
-        </form>
-
-        <form id="registerForm" class="grid form-grid hidden">
-          <label>Usuário <input id="registerUser" placeholder="Ex.: 30200001" /></label>
-          <label>Nome <input id="registerName" placeholder="Seu nome" /></label>
-          <label>Senha <input id="registerPass" type="password" placeholder="Crie uma senha" /></label>
-          <div class="actions"><button type="submit">Registrar</button></div>
-          <p class="helper-text">Novos registros são criados como perfil COMUM.</p>
-        </form>
-
-        <p id="loginStatus" class="status"></p>
-      </div>
-    </section>
-
-    <div id="appShell" class="hidden">
+    <div id="appShell">
       <header>
         <h1>Controle de Estoque por Área</h1>
         <p>Cadastro, consulta e expedição de produtos</p>
-        <div class="actions">
-          <button id="logoutBtn" type="button" class="secondary">Sair</button>
-        </div>
         <button id="themeToggleBtn" class="secondary" type="button" aria-label="Alternar modo escuro">🌙 Modo escuro</button>
       </header>
 
