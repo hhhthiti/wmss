@@ -136,6 +136,7 @@
 
         <div class="card" id="cadastroImportCard">
           <h2>Importar planilha (incluir / apagar posições)</h2>
+          <p class="helper-text">Formato recomendado: <strong>Galpão</strong>, <strong>Rua</strong>, <strong>SKU</strong>, <strong>Qtd Palete</strong> (opcional: Turno, Descrição, Fração, Tipo PLT, Ação).</p>
           <form id="importForm" class="grid form-grid">
             <label class="file-picker-label">
               Arquivo (.xlsx/.xls/.csv)
@@ -320,7 +321,7 @@
       <section id="contagem" class="tab-content">
         <div class="card">
           <h2>Contagem por rua/estrutura</h2>
-          <p class="helper-text">Selecione a área. Use o botão <strong>+</strong> para adicionar mais de 1 SKU na mesma posição. Para importar planilha, o formato recomendado é: <strong>sku</strong>, <strong>deposito</strong> (principal/estruturas/lonil/tissue/ttd; aceita também tsui/ttt), <strong>quadrante</strong> (A01, B02D, chão direito/esquerdo), <strong>qtd plt</strong> e <strong>tipo plt</strong> (PL2/PBR).</p>
+          <p class="helper-text">Selecione a área. Use o botão <strong>+</strong> para adicionar mais de 1 SKU na mesma posição. Para importar planilha, o formato recomendado é: <strong>Galpão</strong>, <strong>Turno</strong> (T1/T2/T3), <strong>Descrição</strong>, <strong>Rua</strong>, <strong>SKU</strong>, <strong>FDO x Palete</strong>, <strong>Qtd Palete</strong> e <strong>Fração</strong>.</p>
           <form id="contagemForm" class="grid two-col">
             <label>Área de contagem
               <select id="contagemScope">
