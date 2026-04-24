@@ -11,25 +11,59 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   </head>
   <body>
-    <header>
-      <h1>Controle de Estoque por Área</h1>
-      <p>Cadastro, consulta e expedição de produtos</p>
-      <button id="themeToggleBtn" class="secondary" type="button" aria-label="Alternar modo escuro">🌙 Modo escuro</button>
-    </header>
+    <section id="authScreen" class="auth-screen">
+      <div class="card auth-card">
+        <h1>WMSS - Controle de Estoque</h1>
+        <p class="helper-text">Acesse com seu usuário para entrar no sistema.</p>
+        <div class="actions">
+          <button id="showLoginBtn" type="button">Login</button>
+          <button id="showRegisterBtn" type="button" class="secondary">Registro</button>
+        </div>
 
-    <main>
+        <form id="loginForm" class="grid form-grid">
+          <label>Usuário <input id="loginUser" placeholder="Ex.: 30152962" /></label>
+          <label>Senha <input id="loginPass" type="password" placeholder="Senha" /></label>
+          <div class="actions"><button type="submit">Entrar</button></div>
+        </form>
+
+        <form id="registerForm" class="grid form-grid hidden">
+          <label>Usuário <input id="registerUser" placeholder="Ex.: 30200001" /></label>
+          <label>Nome <input id="registerName" placeholder="Seu nome" /></label>
+          <label>Senha <input id="registerPass" type="password" placeholder="Crie uma senha" /></label>
+          <div class="actions"><button type="submit">Registrar</button></div>
+          <p class="helper-text">Novos registros são criados como perfil COMUM.</p>
+        </form>
+
+        <p id="loginStatus" class="status"></p>
+      </div>
+    </section>
+
+    <div id="appShell" class="hidden">
+      <header>
+        <h1>Controle de Estoque por Área</h1>
+        <p>Cadastro, consulta e expedição de produtos</p>
+        <div class="actions">
+          <button id="logoutBtn" type="button" class="secondary">Sair</button>
+        </div>
+        <button id="themeToggleBtn" class="secondary" type="button" aria-label="Alternar modo escuro">🌙 Modo escuro</button>
+      </header>
+
+      <main>
       
 
       <nav class="tabs">
-        <button class="tab-btn active" data-tab="cadastro">Cadastro</button>
+        <button class="tab-btn active" data-tab="cadastro" data-role="master">Cadastro</button>
         <button class="tab-btn" data-tab="consulta">Consulta</button>
-        <button class="tab-btn" data-tab="expedicao">Conferência de turno</button>
-        <button class="tab-btn" data-tab="planejamento">Planejamento</button>
-        <button class="tab-btn" data-tab="ocupacao">Ocupação</button>
+        <button class="tab-btn" data-tab="expedicao" data-role="master">Conferência de turno</button>
+        <button class="tab-btn" data-tab="planejamento" data-role="master analyst">Planejamento</button>
+        <button class="tab-btn" data-tab="ocupacao" data-role="master">Ocupação</button>
         <button class="tab-btn" data-tab="contagem">Contagem</button>
+        <button class="tab-btn" data-tab="logs" data-role="master">Logs</button>
+        <button class="tab-btn" data-tab="mb51" data-role="master analyst">Consulta MB52</button>
+        <button class="tab-btn" data-tab="mb52" data-role="analyst">MB52</button>
       </nav>
 
-      <section id="cadastro" class="tab-content active">
+      <section id="cadastro" class="tab-content active" data-role="master">
         <div class="card">
           <h2>Cadastrar produto em área</h2>
           <form id="estoqueForm" class="grid form-grid">
@@ -67,31 +101,63 @@
           </form>
         </div>
 
-        <div class="card">
-          <h2>Importar planilha (cadastro)</h2>
-          <p class="helper-text">Função desativada nesta tela. A operação passa a usar planilha fixa + Contagem/Conferência.</p>
-        </div>
 
-
-
-
-        <div class="card">
-          <h2>ADM: atualizar por colar planilha</h2>
-          <p class="helper-text">Cole aqui o conteúdo copiado do Excel (com cabeçalho). Aceita colunas <strong>area</strong>, <strong>sku</strong>, <strong>tipo</strong>, <strong>paletes</strong> e opcional <strong>acao</strong>. Use para atualizar quando o upload de arquivo falhar.</p>
-          <form id="adminPasteForm" class="grid">
-            <label>Conteúdo da planilha (colar Ctrl+V)
-              <textarea id="adminPasteInput" rows="7" placeholder="area	sku	tipo	paletes	acao
-A01	20104409	PA	30	"></textarea>
+        <div class="card" id="userAdminCard">
+          <h2>Cadastro de usuários</h2>
+          <p class="helper-text">Somente usuário mestre pode cadastrar/editar perfis.</p>
+          <form id="userForm" class="grid form-grid">
+            <label>Usuário <input name="usuario" required placeholder="Ex.: 12345678" /></label>
+            <label>Nome <input name="nome" placeholder="Ex.: Operador turno A" /></label>
+            <label>Senha <input name="senha" type="password" /></label>
+            <label>Perfil
+              <select name="perfil" required>
+                <option value="COMUM">COMUM</option>
+                <option value="MASTER">MASTER</option>
+                <option value="ANALISTA">ANALISTA</option>
+              </select>
             </label>
             <label class="inline-check">
-              <input id="adminPasteSyncMode" type="checkbox" />
-              Sincronização agressiva (apaga tudo que não vier no conteúdo colado)
+              <input name="ativo" type="checkbox" checked />
+              Usuário ativo
             </label>
             <div class="actions">
-              <button type="submit" class="secondary">Aplicar atualização ADM</button>
+              <button type="submit">Salvar usuário</button>
+              <button id="openLogsBtn" type="button" class="secondary">Logs</button>
+            </div>
+          </form>
+          <p id="userStatus" class="status"></p>
+          <div class="table-wrapper">
+            <table id="usersTable">
+              <thead><tr><th>Usuário</th><th>Nome</th><th>Perfil</th><th>Ativo</th><th>Ação</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card" id="cadastroImportCard">
+          <h2>Importar planilha (incluir / apagar posições)</h2>
+          <p class="helper-text">Formato recomendado: <strong>Galpão</strong>, <strong>Rua</strong>, <strong>SKU</strong>, <strong>Qtd Palete</strong> (opcional: Turno, Descrição, Fração, Tipo PLT, Ação).</p>
+          <form id="importForm" class="grid form-grid">
+            <label class="file-picker-label">
+              Arquivo (.xlsx/.xls/.csv)
+              <input id="importFile" type="file" accept=".xlsx,.xls,.csv" required />
+              <span id="importFileName" class="file-name">Nenhum arquivo selecionado</span>
+            </label>
+            <label class="inline-check">
+              <input id="importSyncMode" type="checkbox" />
+              Sincronização agressiva
+            </label>
+            <div class="actions">
+              <button id="selectImportBtn" type="button" class="secondary">Selecionar planilha</button>
+              <button type="submit">Processar planilha</button>
             </div>
           </form>
         </div>
+
+
+
+
+
 
         <div class="card">
           <h2>Planilha espelho automática</h2>
@@ -125,12 +191,6 @@ A01	20104409	PA	30	"></textarea>
       <section id="consulta" class="tab-content">
         <div class="card">
           <h2>Consulta: onde estão os produtos</h2>
-          <div class="actions consulta-subnav">
-            <button type="button" class="secondary consulta-subnav-btn active" data-consulta-view="geral">Geral</button>
-            <button type="button" class="secondary consulta-subnav-btn" data-consulta-view="chao">Chão</button>
-            <button type="button" class="secondary consulta-subnav-btn" data-consulta-view="sku-area">SKU por Área</button>
-            <button type="button" class="secondary consulta-subnav-btn" data-consulta-view="mapa">Mapa</button>
-          </div>
           <form id="consultaFilterForm" class="grid two-col">
             <label>Depósito
               <select id="consultaDepositoFilter">
@@ -142,84 +202,23 @@ A01	20104409	PA	30	"></textarea>
                 <option value="ESTRUTURA">Estrutura</option>
               </select>
             </label>
-            <label>Lado
-              <select id="consultaSideFilter">
-                <option value="ALL">Direita + Esquerda</option>
-                <option value="D">→ Direita</option>
-                <option value="E">← Esquerda</option>
-              </select>
+            <label>Pesquisar SKU
+              <input id="consultaSkuSearch" placeholder="Ex.: 20104409" />
             </label>
           </form>
-          <div id="consultaViewGeral" class="consulta-view active">
           <div class="table-wrapper">
             <table id="consultaAreaTable">
               <thead><tr><th>Depósito</th><th>Lado</th><th>Endereço</th><th>SKU</th><th>Tipo</th><th>Quantidade</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
-          </div>
-          <div id="consultaViewChao" class="consulta-view">
-            <div class="table-wrapper">
-              <table id="consultaChaoTable">
-                <thead><tr><th>Tipo de chão</th><th>Lado</th><th>Endereço</th><th>SKU</th><th>Paletes</th></tr></thead>
-                <tbody></tbody>
-              </table>
-            </div>
-          </div>
-          <div id="consultaViewSkuArea" class="consulta-view">
-            <div class="table-wrapper">
-              <table id="consultaSkuAreaTable">
-                <thead><tr><th>Área/Depósito</th><th>SKU</th><th>Paletes</th><th>Fardos</th></tr></thead>
-                <tbody></tbody>
-              </table>
-            </div>
-          </div>
-          <div id="consultaViewMapa" class="consulta-view">
-            <div class="grid two-col">
-              <label>Área do mapa
-                <select id="mapaAreaSelect">
-                  <option value="PRINCIPAL">Principal</option>
-                  <option value="TISSUE">Tissue</option>
-                  <option value="TTD">TDD</option>
-                  <option value="LONIL">Lonil</option>
-                </select>
-              </label>
-              <label>Posição atual
-                <input id="mapaPosicaoInput" placeholder="Ex.: B02D" />
-              </label>
-            </div>
-            <div id="consultaMapaBox" class="status"></div>
-          </div>
           <div class="actions">
-            <button id="exportConsultaResumoPdfBtn" type="button" class="secondary">Exportar resumo (PDF)</button>
-          </div>
-        </div>
-
-        <div class="card">
-          <h2>Totais por SKU (todas as áreas)</h2>
-          <p class="helper-text">Observação: a área <strong>C01</strong> (retrabalho) não entra na contagem de totais.</p>
-          <div class="table-wrapper">
-            <table id="totaisSkuTable">
-              <thead><tr><th>SKU</th><th>Total Paletes</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-          <button id="exportConsultaBtn" class="secondary">Exportar planilha (consulta + totais SKU)</button>
-        </div>
-
-        <div class="card">
-          <h2>Sobras B01 (esquerdo/direito)</h2>
-          <p class="helper-text">Lista rápida dos SKUs misturados em B01, B01E e B01D.</p>
-          <div class="table-wrapper">
-            <table id="sobrasB01Table">
-              <thead><tr><th>Área</th><th>SKU</th><th>Tipo</th><th>Paletes</th></tr></thead>
-              <tbody></tbody>
-            </table>
+            <a class="secondary" href="impressao-planilha.html" target="_blank" rel="noopener">Ir para Impressão / Chão / Mapa / Resumo SKU</a>
           </div>
         </div>
       </section>
 
-      <section id="expedicao" class="tab-content">
+      <section id="expedicao" class="tab-content" data-role="master">
         <div class="card">
           <h2>Conferência por planilha (fim de turno)</h2>
           <p class="helper-text">Suba a planilha da contagem final do dia. O sistema salva esse snapshot e compara com o snapshot anterior.</p>
@@ -259,7 +258,7 @@ A01	20104409	PA	30	"></textarea>
         </div>
       </section>
 
-      <section id="planejamento" class="tab-content">
+      <section id="planejamento" class="tab-content" data-role="master analyst">
         <div class="card">
           <h2>Planejamento de recebimento (NF)</h2>
           <p class="helper-text">Informe previsão de chegada por SKU para estimar ocupação e blocados que precisam ser desfeitos.</p>
@@ -274,9 +273,17 @@ A01	20104409	PA	30	"></textarea>
             </label>
             <div class="actions">
               <button type="submit">Calcular planejamento</button>
+              <button id="planejamentoEstimateTurnoBtn" type="button" class="secondary">Estimar pela conferência</button>
+              <button id="aiAssistBtn" type="button" class="secondary">✨ Sugerir com IA</button>
             </div>
           </form>
           <div id="planejamentoResultado" class="status"></div>
+          <div class="ai-assist-box">
+            <label>Pergunta para IA (planejamento/ocupação)
+              <textarea id="aiAssistPrompt" rows="3" placeholder="Ex.: Quais blocados devo desfazer hoje para receber 120 paletes?"></textarea>
+            </label>
+            <p id="aiAssistStatus" class="status"></p>
+          </div>
           <div class="table-wrapper">
             <table id="planejamentoTable">
               <thead><tr><th>Bloco</th><th>Capacidade</th><th>Ocupado</th><th>Livre</th><th>Após NF</th><th>Ação</th></tr></thead>
@@ -286,7 +293,7 @@ A01	20104409	PA	30	"></textarea>
         </div>
       </section>
 
-      <section id="ocupacao" class="tab-content">
+      <section id="ocupacao" class="tab-content" data-role="master">
         <div class="card">
           <h2>Cálculo de ocupação do galpão</h2>
           <p class="helper-text">A ocupação agora prioriza a Contagem manual (A/B/C + Estruturas + Tissue + Lonil + TTD). Se não houver contagem preenchida, usa o sistema.</p>
@@ -314,7 +321,7 @@ A01	20104409	PA	30	"></textarea>
       <section id="contagem" class="tab-content">
         <div class="card">
           <h2>Contagem por rua/estrutura</h2>
-          <p class="helper-text">Selecione a área. Use o botão <strong>+</strong> para adicionar mais de 1 SKU na mesma posição. Para importar planilha, o formato recomendado é: <strong>sku</strong>, <strong>deposito</strong> (principal/estruturas/lonil/tissue/ttd), <strong>quadrante</strong> (A01, B02D, chão direito/esquerdo), <strong>qtd plt</strong> e <strong>tipo plt</strong> (PL2/PBR).</p>
+          <p class="helper-text">Selecione a área. Use o botão <strong>+</strong> para adicionar mais de 1 SKU na mesma posição. Para importar planilha, o formato recomendado é: <strong>Galpão</strong>, <strong>Turno</strong> (T1/T2/T3), <strong>Descrição</strong>, <strong>Rua</strong>, <strong>SKU</strong>, <strong>FDO x Palete</strong>, <strong>Qtd Palete</strong> e <strong>Fração</strong>.</p>
           <form id="contagemForm" class="grid two-col">
             <label>Área de contagem
               <select id="contagemScope">
@@ -322,12 +329,14 @@ A01	20104409	PA	30	"></textarea>
                 <option value="B">Rua B</option>
                 <option value="C">Rua C</option>
                 <option value="ESTRUTURA">Estrutura</option>
+                <option value="CHAO">Chão</option>
                 <option value="TISSUE">Tissue</option>
-                <option value="TTD">TTD</option>
+                <option value="TTD">Livro</option>
+                <option value="CAFE">Café</option>
                 <option value="LONIL">Lonil</option>
               </select>
             </label>
-            <label id="contagemSideLabel">Lado (Rua B / Tissue / TTD / Lonil)
+            <label id="contagemSideLabel">Lado (Rua B / Tissue / Livro / Café / Lonil)
               <select id="contagemSide">
                 <option value="ALL">Direito + Esquerdo</option>
                 <option value="D">Somente direito</option>
@@ -338,16 +347,28 @@ A01	20104409	PA	30	"></textarea>
               <input id="contagemFile" type="file" accept=".xlsx,.xls,.csv" />
             </label>
             <label class="inline-check">
-              <input id="contagemImportResetToggle" type="checkbox" checked />
+              <input id="contagemImportResetToggle" type="checkbox" />
               Limpar contagem anterior ao importar planilha
             </label>
+
+            <fieldset class="carryover-box">
+              <legend>Áreas sem contagem manual (usar planilha da Conferência)</legend>
+              <label class="inline-check"><input type="checkbox" class="turno-carry-scope" value="A" /> Rua A</label>
+              <label class="inline-check"><input type="checkbox" class="turno-carry-scope" value="B" /> Rua B</label>
+              <label class="inline-check"><input type="checkbox" class="turno-carry-scope" value="C" /> Rua C</label>
+              <label class="inline-check"><input type="checkbox" class="turno-carry-scope" value="ESTRUTURA" /> Estrutura</label>
+              <label class="inline-check"><input type="checkbox" class="turno-carry-scope" value="CHAO" /> Chão</label>
+              <label class="inline-check"><input type="checkbox" class="turno-carry-scope" value="TISSUE" /> Tissue</label>
+              <label class="inline-check"><input type="checkbox" class="turno-carry-scope" value="TTD" /> Livro</label>
+              <label class="inline-check"><input type="checkbox" class="turno-carry-scope" value="CAFE" /> Café</label>
+              <label class="inline-check"><input type="checkbox" class="turno-carry-scope" value="LONIL" /> Lonil</label>
+            </fieldset>
             <div class="actions">
               <button id="contagemLoadBtn" type="button" class="secondary">Carregar posições</button>
               <button id="contagemImportBtn" type="button" class="secondary">Preencher pela planilha</button>
-              <button id="contagemEstimateBtn" type="button" class="secondary">Estimar pela conferência</button>
               <button id="contagemClearChecksBtn" type="button" class="secondary">Limpar checkboxes (novo turno)</button>
-              <button type="submit">Calcular</button>
-              <button id="contagemApplyBtn" type="button">Atualizar consulta (confirmados)</button>
+              <button type="submit">Atualizar consulta (confirmados)</button>
+              <button id="contagemDeleteDbBtn" type="button" class="danger" data-role="master analyst">Apagar contagem (banco)</button>
               <button id="contagemExportBtn" type="button" class="secondary">Exportar Excel (todas as áreas)</button>
             </div>
           </form>
@@ -357,13 +378,8 @@ A01	20104409	PA	30	"></textarea>
               <thead>
                 <tr>
                   <th>+</th><th>Posição</th><th>SKU</th>
-                  <th>Confirmar?</th>
-                  <th>Blocado no local?</th>
-                  <th>Prof. 1ª</th><th>Larg. 1ª</th>
-                  <th>2ª camada?</th><th>Prof. 2ª</th><th>Larg. 2ª</th>
-                  <th>3ª camada?</th><th>Paletes 3ª</th>
-                  <th>Fardos faltando (palete não inteiro)</th>
-                  <th>Usar total editável?</th><th>Total editável</th><th>Paletes</th><th>Fardos</th>
+                  <th>Fração (fardos no palete fracionado)</th>
+                  <th>Paletes no blocado</th><th>Paletes</th><th>Fardos</th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -376,6 +392,60 @@ A01	20104409	PA	30	"></textarea>
           <div class="table-wrapper">
             <table id="contagemResumoTable">
               <thead><tr><th>SKU</th><th>Paletes</th><th>Fardos</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="logs" class="tab-content" data-role="master">
+        <div class="card">
+          <h2>Logs de contagem por usuário</h2>
+          <p class="helper-text">Cada atualização da contagem no banco gera um log com matrícula/login e cópia dos dados enviados.</p>
+          <div class="actions">
+            <button id="logsBackBtn" type="button" class="secondary">Voltar</button>
+          </div>
+          <div class="table-wrapper">
+            <table id="logsTable">
+              <thead><tr><th>Data/Hora</th><th>Matrícula/Login</th><th>Linhas enviadas</th><th>Ação</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="mb51" class="tab-content" data-role="master analyst">
+        <div class="card">
+          <h2>Consulta MB52 - Base por centro</h2>
+          <p class="helper-text">Esta tela usa a última planilha enviada na MB52. Se a planilha tiver colunas de MB51 (Material, Centro e Utilização livre), a base por centro será atualizada automaticamente.</p>
+          <p id="mb51Status" class="status"></p>
+          <div id="mb51CentrosActions" class="actions"></div>
+          <div class="table-wrapper">
+            <table id="mb51Table">
+              <thead><tr><th>Centro</th><th>Material</th><th>Texto breve material</th><th>Utilização livre</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="mb52" class="tab-content" data-role="analyst">
+        <div class="card">
+          <h2>MB52 - Comparação geral de contagens</h2>
+          <p class="helper-text">Perfil Analista: suba uma planilha com coluna SKU/Material para comparar a base MB51 versus a contagem consolidada no sistema em tempo real.</p>
+          <form id="mb52Form" class="grid form-grid">
+            <label>Planilha de SKUs (.xlsx/.xls/.csv)
+              <input id="mb52File" type="file" accept=".xlsx,.xls,.csv" required />
+            </label>
+            <div class="actions">
+              <button type="submit">Comparar SKUs</button>
+              <button id="mb52RefreshBtn" type="button" class="secondary">Refresh informações</button>
+            </div>
+          </form>
+          <p id="mb52Status" class="status"></p>
+          <div class="table-wrapper">
+            <table id="mb52Table">
+              <thead><tr><th>SKU / Material</th><th>Descrição</th><th>MB51 (utilização livre)</th><th>Sistema (consulta)</th><th>Diferença</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -403,6 +473,7 @@ A01	20104409	PA	30	"></textarea>
 
       <p id="feedback" class="status"></p>
     </main>
+    </div>
 
     <script src="app.js"></script>
   </body>

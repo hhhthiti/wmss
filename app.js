@@ -36,10 +36,27 @@ function storageGetJSON(key, fallback) {
 const el = {
   paleteIncompletoToggle: document.getElementById('paleteIncompletoToggle'),
   paleteIncompletoFields: document.getElementById('paleteIncompletoFields'),
+  loginForm: document.getElementById('loginForm'),
+  loginUser: document.getElementById('loginUser'),
+  loginPass: document.getElementById('loginPass'),
+  registerForm: document.getElementById('registerForm'),
+  registerUser: document.getElementById('registerUser'),
+  registerName: document.getElementById('registerName'),
+  registerPass: document.getElementById('registerPass'),
+  showLoginBtn: document.getElementById('showLoginBtn'),
+  showRegisterBtn: document.getElementById('showRegisterBtn'),
+  logoutBtn: document.getElementById('logoutBtn'),
+  loginStatus: document.getElementById('loginStatus'),
+  authScreen: document.getElementById('authScreen'),
+  appShell: document.getElementById('appShell'),
   connectionStatus: document.getElementById('connectionStatus'),
   feedback: document.getElementById('feedback'),
   estoqueForm: document.getElementById('estoqueForm'),
   produtoForm: document.getElementById('produtoForm'),
+  userForm: document.getElementById('userForm'),
+  openLogsBtn: document.getElementById('openLogsBtn'),
+  userStatus: document.getElementById('userStatus'),
+  usersTableBody: document.querySelector('#usersTable tbody'),
   expedicaoForm: document.getElementById('expedicaoForm'),
   importForm: document.getElementById('importForm'),
   importFile: document.getElementById('importFile'),
@@ -56,6 +73,7 @@ const el = {
   consultaFilterForm: document.getElementById('consultaFilterForm'),
   consultaDepositoFilter: document.getElementById('consultaDepositoFilter'),
   consultaSideFilter: document.getElementById('consultaSideFilter'),
+  consultaSkuSearch: document.getElementById('consultaSkuSearch'),
   consultaMapaBox: document.getElementById('consultaMapaBox'),
   mapaAreaSelect: document.getElementById('mapaAreaSelect'),
   mapaPosicaoInput: document.getElementById('mapaPosicaoInput'),
@@ -66,6 +84,10 @@ const el = {
   previsaoEntrada: document.getElementById('previsaoEntrada'),
   planejamentoFile: document.getElementById('planejamentoFile'),
   planejamentoResultado: document.getElementById('planejamentoResultado'),
+  planejamentoEstimateTurnoBtn: document.getElementById('planejamentoEstimateTurnoBtn'),
+  aiAssistBtn: document.getElementById('aiAssistBtn'),
+  aiAssistPrompt: document.getElementById('aiAssistPrompt'),
+  aiAssistStatus: document.getElementById('aiAssistStatus'),
   planejamentoBody: document.querySelector('#planejamentoTable tbody'),
   ocupacaoForm: document.getElementById('ocupacaoForm'),
   ocupacaoStatus: document.getElementById('ocupacaoStatus'),
@@ -79,15 +101,26 @@ const el = {
   contagemSide: document.getElementById('contagemSide'),
   contagemLoadBtn: document.getElementById('contagemLoadBtn'),
   contagemImportBtn: document.getElementById('contagemImportBtn'),
-  contagemEstimateBtn: document.getElementById('contagemEstimateBtn'),
   contagemClearChecksBtn: document.getElementById('contagemClearChecksBtn'),
   contagemApplyBtn: document.getElementById('contagemApplyBtn'),
+  contagemDeleteDbBtn: document.getElementById('contagemDeleteDbBtn'),
   contagemFile: document.getElementById('contagemFile'),
   contagemImportResetToggle: document.getElementById('contagemImportResetToggle'),
+  turnoCarryScopes: () => Array.from(document.querySelectorAll('.turno-carry-scope:checked')).map((n) => n.value),
   contagemExportBtn: document.getElementById('contagemExportBtn'),
   contagemStatus: document.getElementById('contagemStatus'),
   contagemBody: document.querySelector('#contagemTable tbody'),
   contagemResumoBody: document.querySelector('#contagemResumoTable tbody'),
+  logsBackBtn: document.getElementById('logsBackBtn'),
+  logsTableBody: document.querySelector('#logsTable tbody'),
+  mb51Status: document.getElementById('mb51Status'),
+  mb51TableBody: document.querySelector('#mb51Table tbody'),
+  mb51CentrosActions: document.getElementById('mb51CentrosActions'),
+  mb52Form: document.getElementById('mb52Form'),
+  mb52File: document.getElementById('mb52File'),
+  mb52Status: document.getElementById('mb52Status'),
+  mb52TableBody: document.querySelector('#mb52Table tbody'),
+  mb52RefreshBtn: document.getElementById('mb52RefreshBtn'),
   turnoForm: document.getElementById('turnoForm'),
   turnoFile: document.getElementById('turnoFile'),
   turnoStatus: document.getElementById('turnoStatus'),
@@ -112,12 +145,18 @@ const el = {
 };
 
 let supabaseClient;
-let cache = { estoque: [], movimentacoes: [], produtos: [] };
+let cache = { estoque: [], movimentacoes: [], produtos: [], users: [] };
 let fracionadoMap = {};
-let turnoSnapshots = storageGetJSON('wmss_turno_snapshots', []);
+let turnoSnapshots = [];
 let lastTurnoResultado = [];
-let turnoUltimaPlanilhaSku = storageGetJSON('wmss_turno_ultima_planilha_sku', {});
-let contagemMap = storageGetJSON('wmss_contagem_map', {});
+let turnoUltimaPlanilhaSku = {};
+let contagemMap = {};
+let mb51Snapshot = [];
+let selectedMb51Centro = '';
+let mb52LastSkuList = [];
+let perfilWriteMode = 'AUTO';
+let perfilValuesFromDb = new Set();
+let contagemUploadLogs = storageGetJSON('wmss_contagem_upload_logs', []);
 
 const manualOcupados = new Set([
   'A14', 'A15', 'A16', 'A17', 'A18', 'A19',
@@ -158,13 +197,168 @@ const capacidadePlanejamento = {
   C: 48
 };
 
-const autoExportEnabled = storageGet('wmss_auto_export', '0') === '1';
+const autoExportEnabled = false;
 if (el.autoExportToggle) el.autoExportToggle.checked = autoExportEnabled;
-fracionadoMap = storageGetJSON('wmss_fracionado_map', {});
+fracionadoMap = {};
 
-const darkModeEnabled = storageGet('wmss_theme', 'light') === 'dark';
+const darkModeEnabled = false;
 document.body.classList.toggle('dark', darkModeEnabled);
 if (el.themeToggleBtn) el.themeToggleBtn.textContent = darkModeEnabled ? '☀️ Modo claro' : '🌙 Modo escuro';
+
+
+let currentUser = null;
+
+function canAccessRole(requiredRole) {
+  if (!requiredRole) return true;
+  if (!currentUser) return false;
+  if (currentUser.role === 'master') return true;
+  const allowed = String(requiredRole)
+    .split(/[,\s]+/)
+    .map((value) => normalizeText(value).toLowerCase())
+    .filter(Boolean);
+  return allowed.includes(currentUser.role);
+}
+
+function applyRoleVisibility() {
+  document.querySelectorAll('[data-role]').forEach((node) => {
+    const role = node.getAttribute('data-role');
+    node.classList.toggle('hidden-by-role', !canAccessRole(role));
+  });
+  const visibleTabs = Array.from(document.querySelectorAll('.tab-btn')).filter((btn) => !btn.classList.contains('hidden-by-role'));
+  const activeVisible = visibleTabs.find((btn) => btn.classList.contains('active'));
+  if (!activeVisible && visibleTabs[0]) visibleTabs[0].click();
+}
+
+function toggleAuthMode(mode = 'login') {
+  const isLogin = mode === 'login';
+  el.loginForm?.classList.toggle('hidden', !isLogin);
+  el.registerForm?.classList.toggle('hidden', isLogin);
+  el.showLoginBtn?.classList.toggle('secondary', !isLogin);
+  el.showRegisterBtn?.classList.toggle('secondary', isLogin);
+}
+
+function updateShellVisibility() {
+  const loggedIn = Boolean(currentUser);
+  el.authScreen?.classList.toggle('hidden', loggedIn);
+  el.appShell?.classList.toggle('hidden', !loggedIn);
+}
+
+async function authenticateUser(user, pass) {
+  if (!user || !pass) return null;
+
+  // Fallback local para não travar operação enquanto a tabela de usuários não é criada.
+  if (user === '30152962' && pass === '123') {
+    return { usuario: user, perfil: 'MASTER', ativo: true };
+  }
+
+  if (!supabaseClient) return null;
+
+  const { data, error } = await supabaseClient
+    .from('wmss_users')
+    .select('usuario, perfil, ativo')
+    .eq('usuario', user)
+    .eq('senha', pass)
+    .eq('ativo', true)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return data;
+}
+
+function setupLogin() {
+  // Restaura sessão salva no localStorage
+  const savedSession = storageGetJSON('wmss_session', null);
+  if (savedSession && savedSession.id && savedSession.role) {
+    currentUser = savedSession;
+  }
+  toggleAuthMode('login');
+  updateShellVisibility();
+  el.showLoginBtn?.addEventListener('click', () => toggleAuthMode('login'));
+  el.showRegisterBtn?.addEventListener('click', () => toggleAuthMode('register'));
+
+  el.loginForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const user = normalizeText(el.loginUser?.value || '');
+    const pass = String(el.loginPass?.value || '');
+    if (!user || !pass) {
+      setStatus(el.loginStatus, 'Informe usuário e senha.', 'error');
+      return;
+    }
+
+    const auth = await authenticateUser(user, pass);
+    if (!auth) {
+      setStatus(el.loginStatus, 'Usuário/senha inválidos ou usuário inativo.', 'error');
+      return;
+    }
+
+    const perfil = normalizePerfilForUI(auth.perfil || 'COMUM');
+    currentUser = {
+      id: auth.usuario || user,
+      role: perfil === 'MASTER' ? 'master' : (perfil === 'ANALISTA' ? 'analyst' : 'common')
+    };
+    storageSet('wmss_session', JSON.stringify(currentUser));
+    const roleLabel = currentUser.role === 'master'
+      ? 'mestre'
+      : (currentUser.role === 'analyst' ? 'analista' : 'usuário');
+    setStatus(el.loginStatus, `Login ${roleLabel} ativo (${currentUser.id}).`, 'success');
+    el.loginForm?.reset();
+    el.registerForm?.reset();
+    updateShellVisibility();
+    applyRoleVisibility();
+    loadUsers().catch((err) => setStatus(el.userStatus, `Erro ao carregar usuários: ${err.message}`, 'error'));
+  });
+
+  el.registerForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!supabaseClient) return setStatus(el.loginStatus, 'Banco não conectado.', 'error');
+    const usuario = normalizeText(el.registerUser?.value || '');
+    const nome = String(el.registerName?.value || '').trim();
+    const senha = String(el.registerPass?.value || '').trim();
+
+    if (!usuario || !senha) {
+      setStatus(el.loginStatus, 'Informe usuário e senha para registrar.', 'error');
+      return;
+    }
+
+    try {
+      let error = null;
+      for (const perfilValue of getDbPerfilCandidates('COMUM')) {
+        const payload = { usuario, nome, senha, perfil: perfilValue, ativo: true };
+        const result = await supabaseClient.from('wmss_users').insert(payload);
+        error = result.error || null;
+        if (!error) {
+          perfilWriteMode = perfilValue === 'COMUM' ? 'UPPER' : 'LOWER';
+          break;
+        }
+        if (!String(error.message || '').includes('wmss_users_perfil_check')) break;
+      }
+      if (error) throw error;
+      setStatus(el.loginStatus, 'Registro criado com perfil COMUM. Faça login para continuar.', 'success');
+      el.registerForm?.reset();
+      toggleAuthMode('login');
+    } catch (error) {
+      setStatus(el.loginStatus, `Erro ao registrar usuário: ${error.message}`, 'error');
+    }
+  });
+
+  el.logoutBtn?.addEventListener('click', () => {
+    currentUser = null;
+    storageSet('wmss_session', '');
+    updateShellVisibility();
+    toggleAuthMode('login');
+    setStatus(el.loginStatus, 'Sessão encerrada. Faça login para acessar as áreas.', '');
+    applyRoleVisibility();
+    cache.users = [];
+    renderUsersTable();
+  });
+  applyRoleVisibility();
+  updateShellVisibility();
+  if (currentUser) {
+    setStatus(el.loginStatus, '', '');
+  } else {
+    setStatus(el.loginStatus, 'Faça login para continuar.', '');
+  }
+}
 
 function setStatus(target, message, type = '') {
   if (!target) return;
@@ -178,6 +372,87 @@ function showFeedback(message, type = 'success') {
 
 function normalizeText(value) {
   return String(value ?? '').trim().toUpperCase();
+}
+
+function normalizePerfilForUI(value) {
+  const perfil = normalizeText(value);
+  if (['MASTER', 'MESTRE'].includes(perfil)) return 'MASTER';
+  if (['ANALISTA', 'ANALYST'].includes(perfil)) return 'ANALISTA';
+  return 'COMUM';
+}
+
+function buildPerfilCandidates(uiPerfil) {
+  const perfil = normalizePerfilForUI(uiPerfil);
+  if (perfil === 'MASTER') return ['MASTER', 'master', 'MESTRE', 'mestre'];
+  if (perfil === 'ANALISTA') return ['ANALISTA', 'analista', 'ANALYST', 'analyst'];
+  return ['COMUM', 'comum', 'USUARIO', 'usuario', 'COMMON', 'common'];
+}
+
+function getDbPerfilCandidates(uiPerfil) {
+  const normalizedTarget = normalizePerfilForUI(uiPerfil);
+  const detected = [...perfilValuesFromDb].filter(Boolean);
+  if (!detected.length) return buildPerfilCandidates(normalizedTarget);
+  const compatible = detected.filter((value) => normalizePerfilForUI(value) === normalizedTarget);
+  return compatible.length ? compatible : buildPerfilCandidates(normalizedTarget);
+}
+
+function addContagemUploadLog(rows = []) {
+  const payloadRows = (rows || []).map((row) => ({
+    area: normalizeAreaCode(row.area),
+    sku: Number(row.sku),
+    tipo: normalizeText(row.tipo),
+    paletes: Number(row.paletes || 0)
+  })).filter((row) => row.area && row.sku && row.paletes > 0);
+
+  const entry = {
+    id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    created_at: new Date().toISOString(),
+    usuario: currentUser?.id || 'DESCONHECIDO',
+    rows: payloadRows
+  };
+  contagemUploadLogs.unshift(entry);
+  contagemUploadLogs = contagemUploadLogs.slice(0, 500);
+  storageSet('wmss_contagem_upload_logs', JSON.stringify(contagemUploadLogs));
+  renderLogsTable();
+}
+
+function exportContagemLogEntry(entryId) {
+  const entry = (contagemUploadLogs || []).find((item) => item.id === entryId);
+  if (!entry) return showFeedback('Log não encontrado.', 'error');
+  const rows = (entry.rows || []).map((row) => ({
+    data_hora: entry.created_at,
+    usuario: entry.usuario,
+    area: row.area,
+    sku: row.sku,
+    tipo: row.tipo,
+    paletes: row.paletes
+  }));
+  if (!rows.length) return showFeedback('Esse log não possui linhas para exportar.', 'error');
+  exportWorkbook(`contagem_${entry.usuario}_${entry.created_at.replace(/[:.]/g, '-')}.xlsx`, [
+    { name: 'Contagem', data: rows }
+  ]);
+}
+
+function renderLogsTable() {
+  if (!el.logsTableBody) return;
+  el.logsTableBody.innerHTML = '';
+  (contagemUploadLogs || []).forEach((entry) => {
+    const tr = document.createElement('tr');
+    const created = new Date(entry.created_at);
+    tr.innerHTML = `
+      <td>${Number.isNaN(created.getTime()) ? entry.created_at : created.toLocaleString('pt-BR')}</td>
+      <td>${entry.usuario || '-'}</td>
+      <td>${(entry.rows || []).length}</td>
+      <td><button type="button" class="secondary" data-log-export="${entry.id}">Baixar cópia</button></td>
+    `;
+    tr.querySelector('[data-log-export]')?.addEventListener('click', () => exportContagemLogEntry(entry.id));
+    el.logsTableBody.appendChild(tr);
+  });
+  if (!contagemUploadLogs.length) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="4">Sem logs de contagem até o momento.</td>';
+    el.logsTableBody.appendChild(tr);
+  }
 }
 
 function normalizeAreaCode(value) {
@@ -227,6 +502,129 @@ function parseIncomingForecastRows(rows) {
       };
     })
     .filter((item) => Number.isFinite(item.sku) && Number.isFinite(item.paletes) && item.paletes > 0);
+}
+
+function normalizeHeaderKey(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[._-]+/g, ' ')
+    .toLowerCase()
+    .trim();
+}
+
+function toNumberFlexible(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
+  const raw = String(value ?? '').trim().replace(/\./g, '').replace(',', '.');
+  if (!raw) return NaN;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : NaN;
+}
+
+function normalizeMaterialCode(value) {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  if (!digits) return '';
+  const noLeadingZero = digits.replace(/^0+/, '');
+  return noLeadingZero || '0';
+}
+
+function formatFardos(value) {
+  const quantity = Number(value || 0);
+  return `${quantity.toLocaleString('pt-BR')} fardos`;
+}
+
+function mapMb51Row(rawRow) {
+  const row = Object.fromEntries(
+    Object.entries(rawRow || {}).map(([k, v]) => [normalizeHeaderKey(k), v])
+  );
+  const material = normalizeMaterialCode(row.material);
+  const descricao = String(row['texto breve material'] ?? row.descricao ?? '').trim();
+  const centro = normalizeText(row.centro);
+  const utilizacaoLivre = toNumberFlexible(row['utilizacao livre'] ?? row['utilização livre']);
+  return { material, descricao, centro, utilizacaoLivre };
+}
+
+function saveMb51Snapshot(rows) {
+  mb51Snapshot = rows;
+  storageSet('wmss_mb51_snapshot', JSON.stringify(rows));
+}
+
+function loadMb51Snapshot() {
+  const saved = storageGetJSON('wmss_mb51_snapshot', []);
+  mb51Snapshot = Array.isArray(saved) ? saved : [];
+}
+
+
+
+function getMb51Centros() {
+  return [...new Set(mb51Snapshot
+    .map((row) => normalizeText(row.centro))
+    .filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
+}
+
+function renderMb51CenterButtons() {
+  if (!el.mb51CentrosActions) return;
+  const centros = getMb51Centros();
+  el.mb51CentrosActions.innerHTML = '';
+  if (!centros.length) {
+    const hint = document.createElement('span');
+    hint.className = 'helper-text';
+    hint.textContent = 'Sem centros carregados na base MB51.';
+    el.mb51CentrosActions.appendChild(hint);
+    return;
+  }
+
+  centros.forEach((centro) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `secondary${selectedMb51Centro === centro ? ' active' : ''}`;
+    btn.textContent = `Pesquisar centro ${centro}`;
+    btn.addEventListener('click', () => renderMb51Table(centro));
+    el.mb51CentrosActions.appendChild(btn);
+  });
+}
+function renderMb51Table(centro) {
+  if (!el.mb51TableBody) return;
+  const centros = getMb51Centros();
+  const fallbackCentro = centros[0] || '';
+  selectedMb51Centro = centro || selectedMb51Centro || fallbackCentro;
+  renderMb51CenterButtons();
+  el.mb51TableBody.innerHTML = '';
+  const filtered = mb51Snapshot
+    .filter((row) => row.centro === selectedMb51Centro && row.material)
+    .sort((a, b) => a.material.localeCompare(b.material, 'pt-BR', { numeric: true }));
+
+  if (!filtered.length) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td colspan="4">Nenhum material encontrado para o centro ${selectedMb51Centro || '-' }.</td>`;
+    el.mb51TableBody.appendChild(tr);
+    return;
+  }
+
+  filtered.forEach((row) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${row.centro}</td>
+      <td>${row.material}</td>
+      <td>${row.descricao || '-'}</td>
+      <td>${formatFardos(row.utilizacaoLivre)}</td>
+    `;
+    el.mb51TableBody.appendChild(tr);
+  });
+}
+
+function getSistemaTotalsBySku() {
+  const totals = {};
+  (cache.estoque || []).forEach((row) => {
+    const sku = normalizeMaterialCode(row?.sku);
+    if (!sku) return;
+    const paletes = Number(row?.paletes || 0);
+    if (!Number.isFinite(paletes) || paletes <= 0) return;
+    const fpp = getFardosPorPalete(sku);
+    if (!Number.isFinite(fpp) || fpp <= 0) return;
+    totals[sku] = (totals[sku] || 0) + (paletes * fpp);
+  });
+  return totals;
 }
 
 function exportTurnoResultadoExcel() {
@@ -305,6 +703,153 @@ function renderPlanejamentoTable(ocupado, previsaoPaletes = 0) {
   }
 }
 
+
+function buildAiAssistContext() {
+  const ocupado = getPlanejamentoOcupacaoAtual();
+  const ocupacaoSetores = getPaletesResumoPorSetor();
+  const topSkus = groupTotalBySku(cache.estoque, { excludeRetrabalho: true }).slice(0, 30);
+  return {
+    capacidadePlanejamento,
+    ocupado,
+    ocupacaoSetores,
+    topSkus,
+    dataHora: new Date().toISOString()
+  };
+}
+
+async function runAiAssist() {
+  const prompt = String(el.aiAssistPrompt?.value || '').trim();
+  if (!prompt) {
+    setStatus(el.aiAssistStatus, 'Escreva uma pergunta para a IA.', 'error');
+    return;
+  }
+
+  setStatus(el.aiAssistStatus, 'Consultando IA...', '');
+  const payload = { prompt, context: buildAiAssistContext() };
+
+  try {
+    const response = await fetch(`${defaultConfig.url}/functions/v1/wmss-ai-assist`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: defaultConfig.key,
+        Authorization: `Bearer ${defaultConfig.key}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const msg = await response.text();
+      throw new Error(msg || `Falha HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    const answer = String(data?.answer || data?.resposta || '').trim();
+    if (!answer) throw new Error('Resposta vazia da função wmss-ai-assist.');
+    setStatus(el.aiAssistStatus, answer, 'success');
+  } catch (error) {
+    setStatus(
+      el.aiAssistStatus,
+      `Não foi possível consultar a IA agora. Verifique se a Edge Function "wmss-ai-assist" está publicada. Detalhe: ${error.message}`,
+      'error'
+    );
+  }
+}
+
+
+
+function renderUsersTable() {
+  if (!el.usersTableBody) return;
+  el.usersTableBody.innerHTML = '';
+  cache.users.forEach((u) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${u.usuario}</td><td>${u.nome || ''}</td><td>${u.perfil}</td><td>${u.ativo ? 'SIM' : 'NÃO'}</td><td><button type="button" class="secondary" data-edit="${u.usuario}">Editar</button></td>`;
+    tr.querySelector('[data-edit]')?.addEventListener('click', () => {
+      if (!el.userForm) return;
+      el.userForm.usuario.value = u.usuario || '';
+      el.userForm.nome.value = u.nome || '';
+      el.userForm.senha.value = '';
+      el.userForm.perfil.value = normalizePerfilForUI(u.perfil || 'COMUM');
+      el.userForm.ativo.checked = Boolean(u.ativo);
+      setStatus(el.userStatus, `Editando usuário ${u.usuario}. Preencha a senha somente se quiser alterá-la.`, '');
+    });
+    el.usersTableBody.appendChild(tr);
+  });
+}
+
+async function loadUsers() {
+  if (!supabaseClient || !currentUser || currentUser.role !== 'master') {
+    cache.users = [];
+    renderUsersTable();
+    return;
+  }
+  const { data, error } = await supabaseClient
+    .from('wmss_users')
+    .select('usuario, nome, perfil, ativo')
+    .order('usuario', { ascending: true });
+  if (error) throw error;
+  cache.users = data ?? [];
+  perfilValuesFromDb = new Set((cache.users || []).map((u) => String(u?.perfil || '').trim()).filter(Boolean));
+  renderUsersTable();
+}
+
+async function handleUserSubmit(event) {
+  event.preventDefault();
+  if (!supabaseClient) return setStatus(el.userStatus, 'Banco não conectado.', 'error');
+  if (!currentUser || currentUser.role !== 'master') return setStatus(el.userStatus, 'Somente mestre pode cadastrar usuários.', 'error');
+
+  const formData = new FormData(event.target);
+  const usuario = normalizeText(formData.get('usuario'));
+  const nome = String(formData.get('nome') || '').trim();
+  const senha = String(formData.get('senha') || '').trim();
+  const perfil = normalizePerfilForUI(formData.get('perfil') || 'COMUM');
+  const ativo = formData.get('ativo') === 'on';
+
+  const isUpdate = cache.users.some((u) => normalizeText(u.usuario) === usuario);
+  if (!usuario || (!isUpdate && !senha)) return setStatus(el.userStatus, 'Informe usuário e senha para novo cadastro.', 'error');
+  if (!['MASTER', 'COMUM', 'ANALISTA'].includes(perfil)) return setStatus(el.userStatus, 'Perfil inválido.', 'error');
+
+  const baseCandidates = getDbPerfilCandidates(perfil);
+  if (!baseCandidates.length) {
+    return setStatus(el.userStatus, `Perfil ${perfil} não está habilitado na regra atual do banco.`, 'error');
+  }
+  const perfilCandidates = perfilWriteMode === 'LOWER'
+    ? [...baseCandidates.filter((v) => v === v.toLowerCase()), ...baseCandidates]
+    : (perfilWriteMode === 'UPPER'
+      ? [...baseCandidates.filter((v) => v === v.toUpperCase()), ...baseCandidates]
+      : baseCandidates);
+
+  try {
+    let lastError = null;
+    for (const perfilValue of perfilCandidates) {
+      const payload = { usuario, nome, perfil: perfilValue, ativo };
+      if (senha) payload.senha = senha;
+      const { error } = await supabaseClient
+        .from('wmss_users')
+        .upsert(payload, { onConflict: 'usuario' });
+      if (!error) {
+        perfilWriteMode = perfilValue === perfilValue.toUpperCase() ? 'UPPER' : 'LOWER';
+        perfilValuesFromDb.add(perfilValue);
+        lastError = null;
+        break;
+      }
+      lastError = error;
+      if (!String(error.message || '').includes('wmss_users_perfil_check')) break;
+    }
+    if (lastError) throw lastError;
+    event.target.reset();
+    if (event.target.ativo) event.target.ativo.checked = true;
+    await loadUsers();
+    setStatus(el.userStatus, 'Usuário salvo com sucesso.', 'success');
+  } catch (error) {
+    if (String(error.message || '').includes('wmss_users_perfil_check')) {
+      setStatus(el.userStatus, `Erro ao salvar usuário: perfil não aceito pela regra do banco (${perfil}).`, 'error');
+      return;
+    }
+    setStatus(el.userStatus, `Erro ao salvar usuário: ${error.message}`, 'error');
+  }
+}
+
 function createClient() {
   try {
     if (!window.supabase?.createClient) throw new Error('Biblioteca do Supabase indisponível no momento.');
@@ -354,8 +899,11 @@ async function loadProdutos() {
 async function loadAll() {
   if (!supabaseClient) return;
   try {
-    await Promise.all([loadEstoque(), loadMovimentacoes(), loadProdutos()]);
-    showFeedback('Dados carregados com sucesso.');
+    await Promise.all([loadEstoque(), loadMovimentacoes(), loadProdutos(), loadUsers()]);
+    if (currentUser) {
+      applyRoleVisibility();
+      showFeedback('Dados carregados com sucesso.');
+    }
   } catch (error) {
     showFeedback(`Erro ao carregar dados: ${error.message}`, 'error');
   }
@@ -468,6 +1016,7 @@ function getDepositoFromArea(area) {
   const a = normalizeAreaCode(area);
   if (a.startsWith('TISSUE')) return 'TISSUE';
   if (a.startsWith('TTD')) return 'TTD';
+  if (a.startsWith('CAFE')) return 'CAFE';
   if (a.startsWith('LONIL')) return 'LONIL';
   if (/^(R\d+\.\d+|CHAOESTRUTURA)$/.test(a)) return 'ESTRUTURA';
   return 'PRINCIPAL';
@@ -489,12 +1038,14 @@ function sideLabel(side) {
 function filterConsultaRows(rows) {
   const deposito = normalizeText(el.consultaDepositoFilter?.value || 'ALL');
   const side = normalizeText(el.consultaSideFilter?.value || 'ALL');
+  const skuSearch = normalizeText(el.consultaSkuSearch?.value || '');
   return rows.filter((row) => {
     const dep = getDepositoFromArea(row.area);
     const rowSide = getSideFromArea(row.area);
     const depositoOk = deposito === 'ALL' ? true : dep === deposito;
     const sideOk = side === 'ALL' ? true : rowSide === side;
-    return depositoOk && sideOk;
+    const skuOk = !skuSearch || normalizeText(row.sku).includes(skuSearch);
+    return depositoOk && sideOk && skuOk;
   });
 }
 
@@ -550,6 +1101,7 @@ function renderConsultaMapaHint() {
 
 function renderConsulta() {
   const rowsFiltrados = filterConsultaRows(cache.estoque);
+  if (!el.consultaAreaBody) return;
   el.consultaAreaBody.innerHTML = '';
   rowsFiltrados.forEach((row) => {
     const tr = document.createElement('tr');
@@ -557,13 +1109,21 @@ function renderConsulta() {
     el.consultaAreaBody.appendChild(tr);
   });
 
-  const totais = groupTotalBySku(rowsFiltrados, { excludeRetrabalho: true });
-  el.totaisSkuBody.innerHTML = '';
-  totais.forEach((item) => {
+  if (!rowsFiltrados.length) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${item.sku}</td><td>${item.total_paletes}</td>`;
-    el.totaisSkuBody.appendChild(tr);
-  });
+    tr.innerHTML = '<td colspan="6">Nenhum resultado para os filtros atuais.</td>';
+    el.consultaAreaBody.appendChild(tr);
+  }
+
+  if (el.totaisSkuBody) {
+    const totais = groupTotalBySku(rowsFiltrados, { excludeRetrabalho: true });
+    el.totaisSkuBody.innerHTML = '';
+    totais.forEach((item) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${item.sku}</td><td>${item.total_paletes}</td>`;
+      el.totaisSkuBody.appendChild(tr);
+    });
+  }
 
   renderSobrasB01();
   renderConsultaChao(rowsFiltrados);
@@ -578,8 +1138,10 @@ function inferContagemScopeFromPosicao(posicao) {
   if (/^A\d+$/.test(p)) return 'A';
   if (/^B\d+[ED]?$/.test(p) || /^BD\d+$/.test(p) || /^BE\d+$/.test(p)) return 'B';
   if (/^C\d+$/.test(p)) return 'C';
+  if (p.startsWith('CHAO_')) return 'CHAO';
   if (/^(R\d+\.\d+|CHAOESTRUTURA)$/.test(p)) return 'ESTRUTURA';
   if (p.startsWith('TISSUE')) return 'TISSUE';
+  if (p.startsWith('CAFE')) return 'CAFE';
   if (p.startsWith('LONIL')) return 'LONIL';
   if (p.startsWith('TTD')) return 'TTD';
   return null;
@@ -613,6 +1175,13 @@ function getOccupiedByWarehouse() {
       else if (scope === 'TISSUE') fromContagem.tissue += Number(result.paletes || 0);
       else if (scope === 'LONIL') fromContagem.lonil += Number(result.paletes || 0);
       else if (scope === 'TTD') fromContagem.ttd += Number(result.paletes || 0);
+      else if (scope === 'CHAO') {
+        const pos = normalizeAreaCode(posicao);
+        if (pos.includes('TISSUE')) fromContagem.tissue += Number(result.paletes || 0);
+        else if (pos.includes('TTD')) fromContagem.ttd += Number(result.paletes || 0);
+        else if (pos.includes('LONIL')) fromContagem.lonil += Number(result.paletes || 0);
+        else fromContagem.principal += Number(result.paletes || 0);
+      }
       fromContagem.linhas += 1;
     });
   });
@@ -780,7 +1349,7 @@ function renderMovimentacoes() {
 
 const estruturaLabels = [
   'R1.01-07', 'R2.01-09', 'R3.01-09', 'R3.10-16', 'R4.01-09', 'R4.10-16',
-  'R5.01-09', 'R5.10-16', 'R6.01-10', 'R6.11-16', 'CHAO ESTRUTURA'
+  'R5.01-09', 'R5.10-16', 'R6.01-10', 'R6.11-16', 'R1.08-13', 'R2.10-16', 'TUNEL', 'CHAO ESTRUTURA'
 ];
 
 function expandRangeLabel(label) {
@@ -798,7 +1367,7 @@ function expandRangeLabel(label) {
 
 function shouldShowContagemSide() {
   const scope = normalizeText(el.contagemScope?.value);
-  return ['B', 'TISSUE', 'TTD', 'LONIL'].includes(scope);
+  return ['B', 'TISSUE', 'TTD', 'CAFE', 'LONIL', 'CHAO'].includes(scope);
 }
 
 function updateContagemSideVisibility() {
@@ -827,15 +1396,26 @@ function getContagemPositions(scope, side = 'ALL') {
     return b;
   }
   if (s === 'ESTRUTURA') return [...new Set(estruturaLabels.flatMap(expandRangeLabel))];
-  if (['TISSUE', 'TTD', 'LONIL'].includes(s)) {
+  if (s === 'CHAO') {
+    if (side === 'D') return ['CHAO_PRINCIPAL_D', 'CHAO_TISSUE_D', 'CHAO_TTD_D', 'CHAO_CAFE_D', 'CHAO_LONIL_D'];
+    if (side === 'E') return ['CHAO_PRINCIPAL_E', 'CHAO_TISSUE_E', 'CHAO_TTD_E', 'CHAO_CAFE_E', 'CHAO_LONIL_E'];
+    return ['CHAO_PRINCIPAL_D', 'CHAO_PRINCIPAL_E', 'CHAO_TISSUE_D', 'CHAO_TISSUE_E', 'CHAO_TTD_D', 'CHAO_TTD_E', 'CHAO_CAFE_D', 'CHAO_CAFE_E', 'CHAO_LONIL_D', 'CHAO_LONIL_E'];
+  }
+  if (['TISSUE', 'TTD', 'CAFE', 'LONIL'].includes(s)) {
     const fromDb = cache.estoque
       .map((row) => normalizeAreaCode(row.area))
       .filter((area) => area.startsWith(s));
+    const fromContagem = Object.keys(contagemMap || {})
+      .map((area) => normalizeAreaCode(area))
+      .filter((area) => area.startsWith(s));
     const maxPos = fromDb.reduce((max, area) => {
-      const m = area.match(/^(?:TISSUE|TTD|LONIL)(\d+)/);
+      const m = area.match(/^(?:TISSUE|TTD|CAFE|LONIL)(\d+)/);
       return m ? Math.max(max, Number(m[1])) : max;
-    }, 0);
-    const qty = maxPos || 20;
+    }, fromContagem.reduce((max, area) => {
+      const m = area.match(/^(?:TISSUE|TTD|CAFE|LONIL)(\d+)/);
+      return m ? Math.max(max, Number(m[1])) : max;
+    }, 0));
+    const qty = Math.max(maxPos || 0, 80);
     const out = [];
     for (let i = 1; i <= qty; i += 1) {
       const base = `${s}${String(i).padStart(2, '0')}`;
@@ -859,14 +1439,11 @@ function getContagemEntries(posicao) {
     sku: item.sku || '',
     profundidade1: Number(item.profundidade1 || 0),
     largura1: Number(item.largura1 || 0),
-    segundaCamada: typeof item.segundaCamada === 'boolean' ? item.segundaCamada : (Number(item.profundidade2 || 0) > 0 || Number(item.largura2 || 0) > 0),
-    profundidade2: Number(item.profundidade2 || 0),
-    largura2: Number(item.largura2 || 0),
     terceiraCamada: Boolean(item.terceiraCamada),
     paletesTerceira: Number(item.paletesTerceira || 0),
     fardosFaltando: Number(item.fardosFaltando || 0),
     totalManual: Number(item.totalManual || 0),
-    usarTotalManual: Boolean(item.usarTotalManual),
+    usarTotalManual: typeof item.usarTotalManual === 'boolean' ? item.usarTotalManual : true,
     blocadoPresente: typeof item.blocadoPresente === 'boolean' ? item.blocadoPresente : true,
     confirmada: Boolean(item.confirmada),
     tipoPlt: normalizeText(item.tipoPlt)
@@ -878,14 +1455,11 @@ function createEmptyContagemEntry() {
     sku: '',
     profundidade1: 0,
     largura1: 0,
-    segundaCamada: false,
-    profundidade2: 0,
-    largura2: 0,
     terceiraCamada: false,
     paletesTerceira: 0,
     fardosFaltando: 0,
     totalManual: 0,
-    usarTotalManual: false,
+    usarTotalManual: true,
     blocadoPresente: true,
     confirmada: false,
     tipoPlt: ''
@@ -898,7 +1472,6 @@ function saveContagemEntries(posicao, entries) {
     ...entry
   }));
   contagemMap[posicao] = normalized;
-  storageSet('wmss_contagem_map', JSON.stringify(contagemMap));
 }
 
 function addContagemEntry(posicao) {
@@ -917,26 +1490,18 @@ function removeContagemEntry(posicao, idx) {
 function computeContagem(posicao, entry, scope = el.contagemScope?.value) {
   const st = { ...createEmptyContagemEntry(), ...(entry || {}) };
   const isEstrutura = normalizeText(scope) === 'ESTRUTURA';
-  const ativo = st.blocadoPresente !== false;
-  if (!ativo) {
-    const paletes = st.usarTotalManual && Number(st.totalManual) > 0 ? Number(st.totalManual) : 0;
-    const fpp = getFardosPorPalete(st.sku);
-    const faltando = Math.max(0, st.fardosFaltando || 0);
-    const fardosBrutos = fpp ? paletes * fpp : null;
-    const fardos = Number.isFinite(fardosBrutos) ? Math.max(0, fardosBrutos - faltando) : null;
-    return { ...st, posicao, paletes, paletesCalculados: 0, fardos };
-  }
   const basePrimeira = Math.max(0, st.profundidade1 * st.largura1);
-  const baseSegunda = st.segundaCamada ? Math.max(0, st.profundidade2 * st.largura2) : 0;
-  const base = isEstrutura ? (normalizeText(st.sku) ? 1 : 0) : basePrimeira + baseSegunda;
+  const base = isEstrutura ? (normalizeText(st.sku) ? 1 : 0) : basePrimeira;
   const terceira = st.terceiraCamada ? Math.max(0, st.paletesTerceira) : 0;
-  const paletesCalculados = base + terceira;
+  const paletesBlocado = base + terceira;
+  const paletesCalculados = paletesBlocado;
   const paletes = st.usarTotalManual && Number(st.totalManual) > 0 ? Number(st.totalManual) : paletesCalculados;
   const fpp = getFardosPorPalete(st.sku);
-  const faltando = Math.max(0, st.fardosFaltando || 0);
-  const fardosBrutos = fpp ? paletes * fpp : null;
-  const fardos = Number.isFinite(fardosBrutos) ? Math.max(0, fardosBrutos - faltando) : null;
-  return { ...st, posicao, paletes, paletesCalculados, fardos };
+  const fracaoFardos = Math.max(0, st.fardosFaltando || 0);
+  const paletesContabilizados = fracaoFardos > 0 ? Math.max(0, paletes - 1) : paletes;
+  const fardosBrutos = fpp ? paletesContabilizados * fpp : null;
+  const fardos = Number.isFinite(fardosBrutos) ? Math.max(0, fardosBrutos + fracaoFardos) : (fracaoFardos > 0 ? fracaoFardos : null);
+  return { ...st, posicao, paletes: paletesContabilizados, paletesCalculados, paletesBlocado, fracaoFardos, fardos };
 }
 
 function dividirQuantidade(total, slots) {
@@ -951,8 +1516,7 @@ function estimateLayersFromTotal(totalPaletes) {
   const total = Math.max(0, Number(totalPaletes) || 0);
   const capacidadeCamada = 15;
   const primeira = Math.min(total, capacidadeCamada);
-  const segunda = Math.min(Math.max(0, total - capacidadeCamada), capacidadeCamada);
-  const terceira = Math.max(0, total - (capacidadeCamada * 2));
+  const terceira = Math.max(0, total - capacidadeCamada);
 
   const toDepthWidth = (qty) => {
     if (qty <= 0) return { profundidade: 0, largura: 0 };
@@ -962,13 +1526,9 @@ function estimateLayersFromTotal(totalPaletes) {
   };
 
   const c1 = toDepthWidth(primeira);
-  const c2 = toDepthWidth(segunda);
   return {
     profundidade1: c1.profundidade,
     largura1: c1.largura,
-    segundaCamada: segunda > 0,
-    profundidade2: c2.profundidade,
-    largura2: c2.largura,
     terceiraCamada: terceira > 0,
     paletesTerceira: terceira
   };
@@ -980,8 +1540,6 @@ function hasManualContagemData(entry) {
     || Number(entry?.totalManual) > 0
     || Number(entry?.profundidade1) > 0
     || Number(entry?.largura1) > 0
-    || Number(entry?.profundidade2) > 0
-    || Number(entry?.largura2) > 0
     || Number(entry?.paletesTerceira) > 0
     || Boolean(entry?.usarTotalManual)
     || Number(entry?.fardosFaltando) > 0
@@ -994,6 +1552,7 @@ function estimateContagemFromTurno(scope, side = 'ALL') {
   if (!skusDisponiveis.length) return 0;
 
   const positions = getContagemPositions(scope, side);
+  const carryScopes = (el.turnoCarryScopes?.() || []).filter((v) => v !== scope);
   const targetsBySku = {};
   positions.forEach((posicao) => {
     const entries = getContagemEntries(posicao);
@@ -1035,17 +1594,28 @@ async function importContagemFromPlanilha() {
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
     const scope = el.contagemScope?.value;
-    const positionsAll = new Set(['A', 'B', 'C', 'ESTRUTURA', 'TISSUE', 'LONIL', 'TTD']
+    const positionsAll = new Set(['A', 'B', 'C', 'ESTRUTURA', 'CHAO', 'TISSUE', 'LONIL', 'TTD', 'CAFE']
       .flatMap((s) => getContagemPositions(s, 'ALL')));
     const normalizeHeader = (key) => String(key || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
     const parseDepositoScope = (deposito) => {
       const dep = normalizeText(deposito);
       if (!dep) return '';
       if (dep.includes('ESTRUT')) return 'ESTRUTURA';
-      if (dep.includes('TISSUE')) return 'TISSUE';
+      if (dep.includes('CHAO')) return 'CHAO';
+      if (dep.includes('TISSUE') || dep.includes('TSUI')) return 'TISSUE';
+      if (dep.includes('CAFE') || dep.includes('CAFÉ')) return 'CAFE';
       if (dep.includes('LONIL')) return 'LONIL';
-      if (dep.includes('TTD')) return 'TTD';
+      if (dep.includes('TTD') || dep.includes('TTT')) return 'TTD';
       if (dep.includes('PRINCIPAL')) return 'PRINCIPAL';
+      return '';
+    };
+
+    const parseTurno = (value) => {
+      const t = normalizeText(value).replace(/\s+/g, '');
+      if (!t) return '';
+      if (['T1', '1'].includes(t)) return 'T1';
+      if (['T2', '2'].includes(t)) return 'T2';
+      if (['T3', '3'].includes(t)) return 'T3';
       return '';
     };
 
@@ -1053,14 +1623,16 @@ async function importContagemFromPlanilha() {
       .map((raw) => {
         const row = Object.fromEntries(Object.entries(raw).map(([k, v]) => [normalizeHeader(k), v]));
         return {
-          deposito: normalizeText(row.deposito ?? row.setor ?? row.rua ?? row.area_contagem),
-          quadrante: normalizeText(row.quadrante ?? row.area ?? row.posicao ?? row.endereco),
-          area: normalizeAreaCode(row.quadrante ?? row.area ?? row.posicao ?? row.endereco),
+          deposito: normalizeText(row.galpao ?? row['galpao'] ?? row.deposito ?? row.setor ?? row.rua ?? row.area_contagem),
+          quadrante: normalizeText(row.rua ?? row.quadrante ?? row.area ?? row.posicao ?? row.endereco),
+          area: normalizeAreaCode(row.rua ?? row.quadrante ?? row.area ?? row.posicao ?? row.endereco),
           sku: Number(row.sku ?? row.codsku ?? row.cod_sku),
-          paletes: Number(row.qtd_plt ?? row['qtd plt'] ?? row.paletes ?? row.pallets ?? row.quantidade),
+          paletes: Number(row.qtd_palete ?? row.qtd_plt ?? row['qtd plt'] ?? row.paletes ?? row.pallets ?? row.quantidade),
+          fracao: Number(row.fracao ?? row.fração ?? row['fracao (fardos no palete fracionado)']),
           tipoPlt: normalizeText(row.tipo_plt ?? row['tipo plt'] ?? row.tipo),
           lado: normalizeText(row.lado ?? row.side),
-          setor: normalizeText(row.setor ?? row.rua ?? row.area_contagem)
+          setor: normalizeText(row.setor ?? row.rua ?? row.area_contagem),
+          turno: parseTurno(row.turno)
         };
       })
       .filter((row) => Number.isFinite(row.sku) && row.paletes > 0)
@@ -1070,16 +1642,35 @@ async function importContagemFromPlanilha() {
     const validRows = planRows
       .map((row) => {
         let area = normalizeAreaCode(row.area);
+        if (['D', 'E', 'DIREITO', 'ESQUERDO'].includes(area)) area = '';
         let guessScope = row.depositoScope;
         if (!guessScope && /^A\d+/.test(area)) guessScope = 'A';
         if (!guessScope && /^B\d+[DE]?$/.test(area)) guessScope = 'B';
         if (!guessScope && /^C\d+/.test(area)) guessScope = 'C';
         if (!guessScope && area.startsWith('TISSUE')) guessScope = 'TISSUE';
+        if (!guessScope && area.startsWith('CAFE')) guessScope = 'CAFE';
         if (!guessScope && area.startsWith('LONIL')) guessScope = 'LONIL';
         if (!guessScope && area.startsWith('TTD')) guessScope = 'TTD';
         if (!guessScope && /^(R\d+\.\d+|CHAOESTRUTURA)$/.test(area)) guessScope = 'ESTRUTURA';
+        if (!guessScope && (row.quadrante.includes('CHAO') || area.startsWith('CHAO'))) guessScope = 'CHAO';
 
-        if (!area && ['TISSUE', 'TTD', 'LONIL'].includes(guessScope)) {
+        if (guessScope === 'ESTRUTURA' && !/^(R\d+\.\d+|CHAOESTRUTURA|TUNEL)$/.test(area)) {
+          const expanded = expandRangeLabel(row.quadrante || row.area || '');
+          if (expanded?.length) area = normalizeAreaCode(expanded[0]);
+        }
+
+        if (guessScope === 'CHAO' && !area.startsWith('CHAO_')) {
+          const sideFromQuadrante = row.quadrante.includes('DIREIT') ? 'D' : (row.quadrante.includes('ESQUERD') ? 'E' : 'D');
+          let dep = 'LONIL';
+          if (row.depositoScope === 'PRINCIPAL' || row.deposito.includes('PRINCIPAL')) dep = 'PRINCIPAL';
+          else if (row.depositoScope === 'TISSUE' || row.deposito.includes('TISSUE') || row.deposito.includes('TSUI')) dep = 'TISSUE';
+          else if (row.depositoScope === 'TTD' || row.deposito.includes('TTD') || row.deposito.includes('TTT')) dep = 'TTD';
+          else if (row.depositoScope === 'CAFE' || row.deposito.includes('CAFE') || row.deposito.includes('CAFÉ')) dep = 'CAFE';
+          else if (row.depositoScope === 'LONIL' || row.deposito.includes('LONIL')) dep = 'LONIL';
+          area = `CHAO_${dep}_${sideFromQuadrante}`;
+        }
+
+        if (!area && ['TISSUE', 'TTD', 'CAFE', 'LONIL'].includes(guessScope)) {
           const sideFromQuadrante = row.quadrante.includes('DIREIT') ? 'D' : (row.quadrante.includes('ESQUERD') ? 'E' : '');
           const preferredSide = row.lado === 'DIREITO' ? 'D'
             : row.lado === 'ESQUERDO' ? 'E'
@@ -1089,7 +1680,7 @@ async function importContagemFromPlanilha() {
           area = `${guessScope}${String(autoIndex[key]).padStart(2, '0')}${preferredSide}`;
         }
 
-        if (!area && ['A', 'B', 'C', 'PRINCIPAL'].includes(guessScope)) return null;
+        if (!area && ['A', 'B', 'C', 'PRINCIPAL', 'CHAO'].includes(guessScope)) return null;
         if ((guessScope === 'A' || /^A/.test(area)) && /^\d+$/.test(area)) area = `A${String(Number(area)).padStart(2, '0')}`;
         if ((guessScope === 'C' || /^C/.test(area)) && /^\d+$/.test(area)) area = `C${String(Number(area)).padStart(2, '0')}`;
         if ((guessScope === 'B' || guessScope === 'PRINCIPAL') && /^B?\d+$/.test(area)) {
@@ -1104,17 +1695,20 @@ async function importContagemFromPlanilha() {
 
         return { ...row, area, tipoPlt: ['PL2', 'PBR'].includes(row.tipoPlt) ? row.tipoPlt : '' };
       })
-      .filter((row) => row && positionsAll.has(normalizeAreaCode(row.area)))
+      .filter((row) => row && (
+        positionsAll.has(normalizeAreaCode(row.area))
+        || /^(?:TISSUE|TTD|CAFE|LONIL)\d+[DE]$/.test(normalizeAreaCode(row.area))
+        || /^(?:R\d+\.\d+|CHAOESTRUTURA|TUNEL|CHAO_[A-Z]+_[DE]|CHAO_PRINCIPAL)$/.test(normalizeAreaCode(row.area))
+      ))
       .sort((a, b) => normalizeAreaCode(a.area).localeCompare(normalizeAreaCode(b.area), 'pt-BR', { numeric: true }));
 
     if (!validRows.length) {
-      setStatus(el.contagemStatus, 'Nenhuma linha válida encontrada na planilha. Verifique colunas sku/deposito/quadrante/qtd plt/tipo plt.', 'error');
+      setStatus(el.contagemStatus, 'Nenhuma linha válida encontrada na planilha. Verifique colunas SKU/Galpão/Rua/Qtd Palete/Fração.', 'error');
       return;
     }
 
     if (el.contagemImportResetToggle?.checked) {
       contagemMap = {};
-      storageSet('wmss_contagem_map', JSON.stringify(contagemMap));
     }
 
     const grouped = validRows.reduce((acc, row) => {
@@ -1131,6 +1725,7 @@ async function importContagemFromPlanilha() {
           ...createEmptyContagemEntry(),
           sku: String(row.sku),
           totalManual: total,
+          fardosFaltando: Number.isFinite(row.fracao) && row.fracao > 0 ? row.fracao : 0,
           confirmada: false,
           tipoPlt: row.tipoPlt,
           ...(normalizeText(scope) === 'ESTRUTURA' ? {} : estimateLayersFromTotal(total))
@@ -1140,7 +1735,7 @@ async function importContagemFromPlanilha() {
     });
 
     renderContagemTable();
-    setStatus(el.contagemStatus, `Planilha carregada. ${validRows.length} linha(s) aplicadas para conferência manual. Marque "Confirmar" nas linhas corretas e clique em "Atualizar consulta".`, 'success');
+    setStatus(el.contagemStatus, `Planilha carregada. ${validRows.length} linha(s) aplicadas para conferência manual. Ajuste paletes/fração nas linhas corretas e clique em "Atualizar consulta".`, 'success');
   } catch (error) {
     setStatus(el.contagemStatus, `Erro ao ler planilha da contagem: ${error.message}`, 'error');
   }
@@ -1154,26 +1749,56 @@ function inferTipoContagem(posicao, sku) {
   return 'PL2';
 }
 
+function getTurnoCarryRows(scopes = []) {
+  const selected = new Set((scopes || []).map((v) => normalizeText(v)));
+  if (!selected.size) return [];
+  const latestTurnoRows = turnoSnapshots[0]?.rows || [];
+  return latestTurnoRows
+    .filter((row) => selected.has(inferContagemScopeFromPosicao(row.area)))
+    .filter((row) => Number(row.paletes) > 0 && Number(row.sku) > 0)
+    .map((row) => ({
+      area: normalizeAreaCode(row.area),
+      sku: Number(row.sku),
+      tipo: normalizeText(row.tipo) || inferTipoContagem(row.area, row.sku),
+      paletes: Number(row.paletes)
+    }));
+}
+
 async function applyContagemToConsulta() {
   if (!supabaseClient) return setStatus(el.contagemStatus, 'Banco não conectado para atualizar consulta.', 'error');
-  const scope = el.contagemScope?.value;
+
+  const scope = el.contagemScope?.value || 'A';
   const side = el.contagemSide?.value || 'ALL';
   const positions = getContagemPositions(scope, side);
-  const confirmedRows = positions.flatMap((posicao) => getContagemEntries(posicao)
-    .map((entry) => computeContagem(posicao, entry, scope))
-    .filter((row) => row.confirmada && normalizeText(row.sku) && row.paletes > 0)
-    .map((row) => ({
-      area: normalizeAreaCode(row.posicao),
-      sku: Number(row.sku),
-      tipo: ['PL2', 'PBR'].includes(normalizeText(row.tipoPlt)) ? normalizeText(row.tipoPlt) : inferTipoContagem(row.posicao, row.sku),
-      paletes: Number(row.paletes)
-    })));
+  const carryScopes = (el.turnoCarryScopes?.() || []).filter((v) => v !== scope);
 
-  if (!confirmedRows.length) {
-    return setStatus(el.contagemStatus, 'Nenhuma linha confirmada para atualizar a consulta.', 'error');
+  const confirmedRows = positions
+    .flatMap((posicao) => getContagemEntries(posicao)
+      .map((entry) => computeContagem(posicao, entry, scope))
+      .filter((row) => normalizeText(row.sku) && row.paletes > 0)
+      .map((row) => ({
+        area: normalizeAreaCode(row.posicao),
+        sku: Number(row.sku),
+        tipo: ['PL2', 'PBR'].includes(normalizeText(row.tipoPlt)) ? normalizeText(row.tipoPlt) : inferTipoContagem(row.posicao, row.sku),
+        paletes: Number(row.paletes)
+      })));
+
+  const carryRows = getTurnoCarryRows(carryScopes);
+
+  const targetAreas = [...new Set([
+    ...positions
+      .filter((posicao) => {
+        const entries = getContagemEntries(posicao);
+        return entries.some((entry) => hasManualContagemData(entry));
+      })
+      .map((posicao) => normalizeAreaCode(posicao)),
+    ...carryRows.map((row) => normalizeAreaCode(row.area))
+  ])];
+
+  if (!targetAreas.length) {
+    return setStatus(el.contagemStatus, 'Nenhuma posição da área selecionada com dados de contagem para aplicar.', 'error');
   }
 
-  const targetAreas = [...new Set(confirmedRows.map((row) => row.area))];
   try {
     const { error: deleteError } = await supabaseClient
       .from('estoque_area')
@@ -1181,16 +1806,39 @@ async function applyContagemToConsulta() {
       .in('area', targetAreas);
     if (deleteError) throw deleteError;
 
-    const { error: insertError } = await supabaseClient
-      .from('estoque_area')
-      .upsert(confirmedRows);
-    if (insertError) throw insertError;
+    const rowsToUpsert = [...confirmedRows, ...carryRows];
+    if (rowsToUpsert.length) {
+      const { error: insertError } = await supabaseClient
+        .from('estoque_area')
+        .upsert(rowsToUpsert);
+      if (insertError) throw insertError;
+    }
+    addContagemUploadLog(rowsToUpsert);
 
     await loadAll();
-    setStatus(el.contagemStatus, `Consulta atualizada com ${confirmedRows.length} linha(s) confirmada(s) em ${targetAreas.length} posição(ões).`, 'success');
-    showFeedback('Contagem confirmada aplicada na consulta com sucesso.');
+    setStatus(el.contagemStatus, `Consulta substituída para ${targetAreas.length} posição(ões) da área ${scope}${side !== 'ALL' ? ` (${side})` : ''}. Linhas aplicadas: ${confirmedRows.length}. Herdadas da conferência: ${carryRows.length}.`, 'success');
+    showFeedback('Contagem aplicada na consulta com sucesso.');
   } catch (error) {
     setStatus(el.contagemStatus, `Erro ao atualizar consulta pela contagem: ${error.message}`, 'error');
+  }
+}
+
+async function clearContagemFromDatabase() {
+  if (!supabaseClient) return setStatus(el.contagemStatus, 'Banco não conectado para apagar contagem.', 'error');
+  if (!currentUser || !['master', 'analyst'].includes(currentUser.role)) {
+    return setStatus(el.contagemStatus, 'Somente mestre/analista pode apagar a contagem.', 'error');
+  }
+  const confirmed = window.confirm('Deseja realmente apagar toda a contagem salva no banco (estoque_area)?');
+  if (!confirmed) return;
+  try {
+    const { error } = await supabaseClient.from('estoque_area').delete().gt('paletes', -1);
+    if (error) throw error;
+    addContagemUploadLog([]);
+    await loadAll();
+    setStatus(el.contagemStatus, 'Contagem apagada do banco com sucesso.', 'success');
+    showFeedback('Todas as linhas de contagem foram removidas do banco.');
+  } catch (error) {
+    setStatus(el.contagemStatus, `Erro ao apagar contagem: ${error.message}`, 'error');
   }
 }
 
@@ -1226,7 +1874,7 @@ function preloadContagemFromEstoque(scope, side = 'ALL') {
 
   positions.forEach((posicao) => {
     const existentes = getContagemEntries(posicao);
-    const temDadosDigitados = existentes.some((entry) => normalizeText(entry.sku) || Number(entry.profundidade1) > 0 || Number(entry.largura1) > 0 || Number(entry.profundidade2) > 0 || Number(entry.largura2) > 0 || Number(entry.paletesTerceira) > 0 || Boolean(entry.usarTotalManual) || Number(entry.fardosFaltando) > 0 || Number(entry.totalManual) > 0);
+    const temDadosDigitados = existentes.some((entry) => normalizeText(entry.sku) || Number(entry.profundidade1) > 0 || Number(entry.largura1) > 0 || Number(entry.paletesTerceira) > 0 || Boolean(entry.usarTotalManual) || Number(entry.fardosFaltando) > 0 || Number(entry.totalManual) > 0);
     if (temDadosDigitados) return;
 
     const rows = cache.estoque
@@ -1251,7 +1899,6 @@ function renderContagemTable() {
   if (!el.contagemBody) return;
   updateContagemSideVisibility();
   const scope = el.contagemScope?.value;
-  const isEstrutura = normalizeText(scope) === 'ESTRUTURA';
   const positions = getContagemPositions(scope, el.contagemSide?.value || 'ALL');
   el.contagemBody.innerHTML = '';
   const computedRows = [];
@@ -1273,18 +1920,8 @@ function renderContagemTable() {
         <td>${plusOrRemove}</td>
         <td>${posLabel}</td>
         <td><input class="contagem-sku-input" data-posicao="${posicao}" data-entry-idx="${idx}" data-field="sku" value="${entry.sku || ''}" /></td>
-        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="confirmada" type="checkbox" ${entry.confirmada ? 'checked' : ''} /></td>
-        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="blocadoPresente" type="checkbox" ${entry.blocadoPresente ? 'checked' : ''} /></td>
-        <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="profundidade1" type="number" min="0" value="${entry.profundidade1 || ''}" />`}</td>
-        <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="largura1" type="number" min="0" value="${entry.largura1 || ''}" />`}</td>
-        <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="segundaCamada" type="checkbox" ${entry.segundaCamada ? 'checked' : ''} />`}</td>
-        <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : (entry.segundaCamada ? `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="profundidade2" type="number" min="0" value="${entry.profundidade2 || ''}" />` : '<span class="contagem-collapsed">marque 2ª camada</span>')}</td>
-        <td>${isEstrutura || !entry.blocadoPresente ? '<span>-</span>' : (entry.segundaCamada ? `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="largura2" type="number" min="0" value="${entry.largura2 || ''}" />` : '<span class="contagem-collapsed">marque 2ª camada</span>')}</td>
-        <td>${!entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="terceiraCamada" type="checkbox" ${entry.terceiraCamada ? 'checked' : ''} />`}</td>
-        <td>${!entry.blocadoPresente ? '<span>-</span>' : `<input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="paletesTerceira" type="number" min="0" value="${entry.paletesTerceira || ''}" ${entry.terceiraCamada ? '' : 'disabled'} />`}</td>
         <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="fardosFaltando" type="number" min="0" value="${entry.fardosFaltando || ''}" /></td>
-        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="usarTotalManual" type="checkbox" ${entry.usarTotalManual ? 'checked' : ''} /></td>
-        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="totalManual" type="number" min="0" value="${entry.totalManual || ''}" ${entry.usarTotalManual ? '' : 'disabled'} /></td>
+        <td><input data-posicao="${posicao}" data-entry-idx="${idx}" data-field="totalManual" type="number" min="0" value="${entry.totalManual || ''}" /></td>
         <td>${result.paletes}</td>
         <td>${Number.isFinite(result.fardos) ? result.fardos : '-'}</td>
       `;
@@ -1320,21 +1957,9 @@ function renderContagemTable() {
       const idx = Number(entryIdx || 0);
       const current = { ...entries[idx] };
       current[field] = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
-      if (field === 'segundaCamada' && !event.target.checked) {
-        current.profundidade2 = 0;
-        current.largura2 = 0;
-      }
-      if (field === 'blocadoPresente' && !event.target.checked) {
-        current.profundidade1 = 0;
-        current.largura1 = 0;
-        current.segundaCamada = false;
-        current.profundidade2 = 0;
-        current.largura2 = 0;
-        current.terceiraCamada = false;
-        current.paletesTerceira = 0;
-      }
-      if (field === 'terceiraCamada' && !event.target.checked) current.paletesTerceira = 0;
-      if (field === 'usarTotalManual' && !event.target.checked) current.totalManual = 0;
+      current.usarTotalManual = true;
+      current.confirmada = true;
+      current.blocadoPresente = true;
       entries[idx] = current;
       saveContagemEntries(posicao, entries);
       renderContagemTable();
@@ -1358,7 +1983,7 @@ function focusNextContagemInput(currentInput) {
 }
 
 function exportContagemExcel() {
-  const allScopes = ['A', 'B', 'C', 'ESTRUTURA', 'TISSUE', 'TTD', 'LONIL'];
+  const allScopes = ['A', 'B', 'C', 'ESTRUTURA', 'TISSUE', 'TTD', 'CAFE', 'LONIL'];
   const rows = allScopes
     .flatMap((scope) => getContagemPositions(scope, 'ALL')
       .flatMap((p) => getContagemEntries(p).map((entry, idx) => ({ ...computeContagem(p, entry, scope), entry_idx: idx + 1, scope }))))
@@ -1371,14 +1996,10 @@ function exportContagemExcel() {
       item_posicao: row.entry_idx,
       profundidade_1: row.profundidade1,
       largura_1: row.largura1,
-      segunda_camada: row.segundaCamada ? 'SIM' : 'NAO',
-      profundidade_2: row.profundidade2,
-      largura_2: row.largura2,
-      terceira_camada: row.terceiraCamada ? 'SIM' : 'NAO',
-      paletes_terceira: row.terceiraCamada ? row.paletesTerceira : 0,
+      ultima_camada: row.terceiraCamada ? 'SIM' : 'NAO',
+      paletes_ultima: row.terceiraCamada ? row.paletesTerceira : 0,
       fardos_faltando: row.fardosFaltando || 0,
-      usar_total_editavel: row.usarTotalManual ? 'SIM' : 'NAO',
-      total_editavel: row.totalManual || 0,
+      paletes_no_blocado: row.totalManual || 0,
       paletes_totais: row.paletes,
       fardos_totais: Number.isFinite(row.fardos) ? row.fardos : ''
     }));
@@ -1419,8 +2040,7 @@ function setupContagem() {
         ...entry,
         confirmada: false,
         blocadoPresente: true,
-        usarTotalManual: false,
-        segundaCamada: false,
+        usarTotalManual: true,
         terceiraCamada: false
       }));
       saveContagemEntries(posicao, entries);
@@ -1428,20 +2048,11 @@ function setupContagem() {
     renderContagemTable();
     setStatus(el.contagemStatus, 'Checkboxes limpos para iniciar novo turno.', 'success');
   });
-  el.contagemEstimateBtn?.addEventListener('click', () => {
-    const scope = el.contagemScope?.value;
-    const side = el.contagemSide?.value || 'ALL';
-    const estimadas = estimateContagemFromTurno(scope, side);
-    renderContagemTable();
-    setStatus(el.contagemStatus, estimadas
-      ? `Estimativa da última conferência aplicada em ${estimadas} linha(s). Campos continuam editáveis, inclusive o total.`
-      : 'Não há dados da última conferência para estimar (suba a planilha na aba Conferência de turno).', estimadas ? 'success' : 'error');
-  });
   el.contagemApplyBtn?.addEventListener('click', applyContagemToConsulta);
-  el.contagemForm?.addEventListener('submit', (event) => {
+  el.contagemDeleteDbBtn?.addEventListener('click', clearContagemFromDatabase);
+  el.contagemForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    renderContagemTable();
-    setStatus(el.contagemStatus, 'Cálculo atualizado.', 'success');
+    await applyContagemToConsulta();
   });
   el.contagemExportBtn?.addEventListener('click', exportContagemExcel);
 }
@@ -1488,7 +2099,6 @@ async function handleEstoqueSubmit(event) {
     } else {
       delete fracionadoMap[chave];
     }
-    storageSet('wmss_fracionado_map', JSON.stringify(fracionadoMap));
 
     showFeedback('Estoque salvo com sucesso.');
     event.target.reset();
@@ -1593,7 +2203,6 @@ function saveTurnoSnapshot(snapshotRows) {
   };
 
   turnoSnapshots = [item, ...turnoSnapshots].slice(0, 3);
-  storageSet('wmss_turno_snapshots', JSON.stringify(turnoSnapshots));
   renderTurnoHistory();
 }
 
@@ -1633,7 +2242,6 @@ async function handleTurnoSubmit(event) {
       acc[key] = (acc[key] || 0) + paletes;
       return acc;
     }, {});
-    storageSet('wmss_turno_ultima_planilha_sku', JSON.stringify(turnoUltimaPlanilhaSku));
 
     const snapshotAnterior = turnoSnapshots[0]?.rows ?? null;
     const atual = snapshotAnterior ? consolidarPorChave(snapshotAnterior) : consolidarPorChave(cache.estoque);
@@ -1687,20 +2295,97 @@ async function handleTurnoSubmit(event) {
 }
 
 function mapImportRow(rawRow) {
+  const normalizeHeader = (key) => String(key || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
   const row = Object.fromEntries(
-    Object.entries(rawRow).map(([k, v]) => [String(k).trim().toLowerCase(), v])
+    Object.entries(rawRow || {}).map(([k, v]) => [normalizeHeader(k), v])
   );
 
-  const areaRaw = row.area ?? row['área'] ?? row.endereco ?? row.endereço;
-  const skuRaw = row.sku ?? row.codsku ?? row['cód_sku'];
-  const tipoRaw = row.tipo ?? row.produto_tipo;
-  const paletesRaw = row.paletes ?? row.pallets ?? row.quantidade;
+  const toNum = (v) => {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : NaN;
+    const raw = String(v ?? '').trim().replace(',', '.');
+    if (!raw) return NaN;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : NaN;
+  };
+
+  const depositoRaw = normalizeText(row.galpao ?? row['galpao'] ?? row.deposito ?? row.setor ?? row.local);
+  const quadranteRaw = String(row.rua ?? row.quadrante ?? row.endereco ?? row.endereço ?? row.area ?? row.posicao ?? '').trim();
+  const quadrante = normalizeAreaCode(quadranteRaw);
+  const ladoRaw = normalizeText(row.lado ?? row.side ?? '');
+
+  const inferArea = () => {
+    const explicitArea = normalizeAreaCode(row.area ?? row['área'] ?? row.endereco ?? row.endereço ?? row.posicao);
+    if (explicitArea) return explicitArea;
+
+    const dep = depositoRaw;
+    const q = quadrante;
+    if (!q && !dep) return '';
+
+    if (dep.includes('ESTRUT')) {
+      if (q.includes('TUNEL')) return 'TUNEL';
+      if (q.includes('CHAO')) return 'CHAOESTRUTURA';
+      if (/^R\d+\.\d+(?:-\d+)?$/.test(q)) return normalizeAreaCode(q.replace(/-(\d+)$/, ''));
+      return normalizeAreaCode(q);
+    }
+
+    if (dep.includes('TISSUE') || dep.includes('TSUI')) {
+      const side = ladoRaw.startsWith('E') || q.includes('ESQUER') ? 'E' : 'D';
+      if (q.includes('CHAO')) return `CHAO_TISSUE_${side}`;
+      if (/^\d+$/.test(q)) return `TISSUE${String(Number(q)).padStart(2, '0')}${side}`;
+      if (/^TISSUE\d+[DE]$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (q === 'D' || q === 'E') return `TISSUE01${q}`;
+      return `TISSUE01${side}`;
+    }
+
+    if (dep.includes('LONIL')) {
+      const side = ladoRaw.startsWith('E') || q.includes('ESQUER') ? 'E' : 'D';
+      if (q.includes('CHAO')) return `CHAO_LONIL_${side}`;
+      if (/^\d+$/.test(q)) return `LONIL${String(Number(q)).padStart(2, '0')}${side}`;
+      if (/^LONIL\d+[DE]$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (q === 'D' || q === 'E') return `LONIL01${q}`;
+      return `LONIL01${side}`;
+    }
+
+    if (dep.includes('CAFE') || dep.includes('CAFÉ')) {
+      const side = ladoRaw.startsWith('E') || q.includes('ESQUER') ? 'E' : 'D';
+      if (q.includes('CHAO')) return `CHAO_CAFE_${side}`;
+      if (/^\d+$/.test(q)) return `CAFE${String(Number(q)).padStart(2, '0')}${side}`;
+      if (/^CAFE\d+[DE]$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (q === 'D' || q === 'E') return `CAFE01${q}`;
+      return `CAFE01${side}`;
+    }
+
+    if (dep.includes('TTD') || dep.includes('TTT')) {
+      const side = ladoRaw.startsWith('E') || q.includes('ESQUER') ? 'E' : 'D';
+      if (q.includes('CHAO')) return `CHAO_TTD_${side}`;
+      if (/^\d+$/.test(q)) return `TTD${String(Number(q)).padStart(2, '0')}${side}`;
+      if (/^TTD\d+[DE]$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (q === 'D' || q === 'E') return `TTD01${q}`;
+      return `TTD01${side}`;
+    }
+
+    if (dep.includes('PRINCIPAL') || !dep) {
+      if (q.includes('PICKING')) return 'PICKING';
+      if (q.includes('CHAO')) return 'CHAO_PRINCIPAL';
+      if (/^A\d+$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (/^C\d+$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (/^B\d+[DE]$/.test(normalizeAreaCode(q))) return normalizeAreaCode(q);
+      if (/^B\d+$/.test(normalizeAreaCode(q))) return `${normalizeAreaCode(q)}D`;
+      return normalizeAreaCode(q);
+    }
+
+    return normalizeAreaCode(q);
+  };
+
+  const paletesRaw = row.qtd_palete ?? row.paletes ?? row.pallets ?? row.quantidade ?? row.qtd_plt ?? row['qtd plt'] ?? row.qtdplt;
+  const tipoRaw = row.tipo ?? row.produto_tipo ?? row.tipo_plt ?? row['tipo plt'];
+  const skuRaw = row.sku ?? row.codsku ?? row['cod_sku'] ?? row['cód_sku'];
 
   return {
-    area: normalizeAreaCode(areaRaw),
-    sku: Number(skuRaw),
-    tipo: normalizeText(tipoRaw),
-    paletes: Number(paletesRaw),
+    area: inferArea(),
+    sku: toNum(skuRaw),
+    tipo: normalizeText(tipoRaw) || 'PL2',
+    paletes: toNum(paletesRaw),
     acao: normalizeText(row.acao)
   };
 }
@@ -2094,7 +2779,7 @@ function exportWorkbook(fileName, sheets) {
 }
 
 function setupExports() {
-  el.exportCadastroBtn.addEventListener('click', () => {
+  el.exportCadastroBtn?.addEventListener('click', () => {
     const { rows: estoqueExportRows, missingSkus } = buildEstoqueExportRows();
     const totais = groupTotalBySku(cache.estoque, { excludeRetrabalho: true });
     exportWorkbook('cadastro_estoque.xlsx', [
@@ -2104,7 +2789,7 @@ function setupExports() {
     if (missingSkus.length) showFeedback(`Aviso: SKU(s) sem fardos por palete: ${missingSkus.join(', ')}.`, 'error');
   });
 
-  el.exportConsultaBtn.addEventListener('click', () => {
+  el.exportConsultaBtn?.addEventListener('click', () => {
     const { rows: estoqueExportRows, missingSkus } = buildEstoqueExportRows();
     const totais = groupTotalBySku(cache.estoque, { excludeRetrabalho: true });
     exportWorkbook('consulta_estoque.xlsx', [
@@ -2144,6 +2829,16 @@ function setupTabs() {
 }
 
 function setupPlanejamento() {
+  el.aiAssistBtn?.addEventListener('click', runAiAssist);
+
+  el.planejamentoEstimateTurnoBtn?.addEventListener('click', () => {
+    const estimadas = estimateContagemFromTurno(el.contagemScope?.value || 'A', el.contagemSide?.value || 'ALL');
+    renderContagemTable();
+    setStatus(el.planejamentoResultado, estimadas
+      ? `Estimativa da última conferência aplicada em ${estimadas} linha(s) na Contagem.`
+      : 'Sem dados da última conferência para estimar.', estimadas ? 'success' : 'error');
+  });
+
   el.planejamentoForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     let itens = parseIncomingForecast(el.previsaoEntrada?.value);
@@ -2186,6 +2881,7 @@ function exportConsultaResumoPDF() {
 
 function setupConsulta() {
   el.consultaFilterForm?.addEventListener('change', renderConsulta);
+  el.consultaSkuSearch?.addEventListener('input', renderConsulta);
   el.mapaAreaSelect?.addEventListener('change', renderConsultaMapaHint);
   el.mapaPosicaoInput?.addEventListener('input', renderConsultaMapaHint);
   el.exportConsultaResumoPdfBtn?.addEventListener('click', exportConsultaResumoPDF);
@@ -2212,12 +2908,120 @@ function setupOcupacao() {
   });
 }
 
+function parseMb52SkuRows(rows) {
+  return rows
+    .map((rawRow) => {
+      const row = Object.fromEntries(Object.entries(rawRow || {}).map(([k, v]) => [normalizeHeaderKey(k), v]));
+      const material = normalizeMaterialCode(row.sku ?? row.material ?? row['codigo material'] ?? row['código material']);
+      return material;
+    })
+    .filter(Boolean);
+}
+
+function extractMb51RowsFromMb52(rows) {
+  return (rows || [])
+    .map(mapMb51Row)
+    .filter((row) => row.centro && row.material && Number.isFinite(row.utilizacaoLivre));
+}
+
+function renderMb52Comparison(skuList, sourceLabel = 'planilha') {
+  if (!el.mb52TableBody) return;
+  const uniqueSkus = [...new Set((skuList || []).map((sku) => normalizeMaterialCode(sku)).filter(Boolean))];
+  if (!uniqueSkus.length) {
+    setStatus(el.mb52Status, 'Nenhum SKU/Material válido encontrado para comparação.', 'error');
+    return;
+  }
+
+  const contagemTotals = getSistemaTotalsBySku();
+  const mb51BySku = mb51Snapshot.reduce((acc, row) => {
+    const key = normalizeMaterialCode(row.material);
+    if (!key) return acc;
+    const current = acc[key] || { utilizacaoLivre: 0, descricao: row.descricao || '' };
+    current.utilizacaoLivre += Number(row.utilizacaoLivre || 0);
+    if (!current.descricao && row.descricao) current.descricao = row.descricao;
+    acc[key] = current;
+    return acc;
+  }, {});
+
+  el.mb52TableBody.innerHTML = '';
+  uniqueSkus.forEach((sku) => {
+    const mb51 = Number(mb51BySku[sku]?.utilizacaoLivre || 0);
+    const contagem = Number(contagemTotals[sku] || 0);
+    const diff = contagem - mb51;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${sku}</td>
+      <td>${mb51BySku[sku]?.descricao || '-'}</td>
+      <td>${formatFardos(mb51)}</td>
+      <td>${formatFardos(contagem)}</td>
+      <td>${formatFardos(diff)}</td>
+    `;
+    el.mb52TableBody.appendChild(tr);
+  });
+
+  setStatus(el.mb52Status, `Comparação concluída para ${uniqueSkus.length} SKU(s) (${sourceLabel}).`, 'success');
+}
+
+async function handleMb52Submit(event) {
+  event.preventDefault();
+  const file = el.mb52File?.files?.[0];
+  if (!file) return setStatus(el.mb52Status, 'Selecione a planilha de SKUs.', 'error');
+
+  try {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const parsedRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    mb52LastSkuList = parseMb52SkuRows(parsedRows);
+    const mb51Rows = extractMb51RowsFromMb52(parsedRows);
+    if (mb51Rows.length) {
+      saveMb51Snapshot(mb51Rows);
+      renderMb51Table(selectedMb51Centro || getMb51Centros()[0] || '');
+      setStatus(el.mb51Status, `Base por centro atualizada automaticamente com ${mb51Rows.length} linha(s) da planilha MB52.`, 'success');
+    } else {
+      setStatus(el.mb51Status, 'Planilha MB52 enviada sem colunas de centro/utilização livre. Mantendo base anterior por centro.', '');
+    }
+    renderMb52Comparison(mb52LastSkuList, 'planilha enviada');
+  } catch (error) {
+    setStatus(el.mb52Status, `Erro ao processar MB52: ${error.message}`, 'error');
+  }
+}
+
+function refreshMb52Comparison() {
+  if (!mb52LastSkuList.length) {
+    setStatus(el.mb52Status, 'Faça uma comparação de MB52 primeiro para habilitar o refresh.', 'error');
+    return;
+  }
+  renderMb52Comparison(mb52LastSkuList, 'refresh sem recarregar página');
+}
+
+function setupMb51Mb52() {
+  loadMb51Snapshot();
+  renderMb51CenterButtons();
+  if (mb51Snapshot.length) renderMb51Table(getMb51Centros()[0] || '');
+  el.mb52Form?.addEventListener('submit', handleMb52Submit);
+  el.mb52RefreshBtn?.addEventListener('click', refreshMb52Comparison);
+}
+
+function setupLogs() {
+  renderLogsTable();
+  el.openLogsBtn?.addEventListener('click', () => {
+    document.querySelector('.tab-btn[data-tab="logs"]')?.click();
+  });
+  el.logsBackBtn?.addEventListener('click', () => {
+    document.querySelector('.tab-btn[data-tab="cadastro"]')?.click();
+  });
+}
+
 function init() {
   setupTabs();
+  setupLogin();
   setupExports();
   setupConsulta();
   setupPlanejamento();
   setupOcupacao();
+  setupMb51Mb52();
+  setupLogs();
   setupContagem();
   renderTurnoHistory();
   el.turnoForm?.addEventListener('submit', handleTurnoSubmit);
@@ -2229,9 +3033,9 @@ function init() {
   });
   el.estoqueForm.addEventListener('submit', handleEstoqueSubmit);
   el.produtoForm.addEventListener('submit', handleProdutoSubmit);
+  el.userForm?.addEventListener('submit', handleUserSubmit);
   el.expedicaoForm?.addEventListener('submit', handleExpedicaoSubmit);
   el.importForm?.addEventListener('submit', handleImportSubmit);
-  el.adminPasteForm?.addEventListener('submit', handleAdminPasteSubmit);
   el.selectImportBtn?.addEventListener('click', () => el.importFile?.click());
   el.importFile?.addEventListener('change', () => {
     const name = el.importFile.files?.[0]?.name || 'Nenhum arquivo selecionado';
@@ -2243,12 +3047,10 @@ function init() {
   el.themeToggleBtn?.addEventListener('click', () => {
     const isDark = !document.body.classList.contains('dark');
     document.body.classList.toggle('dark', isDark);
-    storageSet('wmss_theme', isDark ? 'dark' : 'light');
     el.themeToggleBtn.textContent = isDark ? '☀️ Modo claro' : '🌙 Modo escuro';
   });
   el.autoExportToggle?.addEventListener('change', (event) => {
     const enabled = event.target.checked;
-    storageSet('wmss_auto_export', enabled ? '1' : '0');
     showFeedback(enabled ? 'Auto planilha ativado.' : 'Auto planilha desativado.');
   });
   createClient();
