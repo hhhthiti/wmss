@@ -1610,18 +1610,29 @@ async function importContagemFromPlanilha() {
       return '';
     };
 
+    const parseTurno = (value) => {
+      const t = normalizeText(value).replace(/\s+/g, '');
+      if (!t) return '';
+      if (['T1', '1'].includes(t)) return 'T1';
+      if (['T2', '2'].includes(t)) return 'T2';
+      if (['T3', '3'].includes(t)) return 'T3';
+      return '';
+    };
+
     const planRows = rawRows
       .map((raw) => {
         const row = Object.fromEntries(Object.entries(raw).map(([k, v]) => [normalizeHeader(k), v]));
         return {
-          deposito: normalizeText(row.deposito ?? row.setor ?? row.rua ?? row.area_contagem),
-          quadrante: normalizeText(row.quadrante ?? row.area ?? row.posicao ?? row.endereco),
-          area: normalizeAreaCode(row.quadrante ?? row.area ?? row.posicao ?? row.endereco),
+          deposito: normalizeText(row.galpao ?? row['galpao'] ?? row.deposito ?? row.setor ?? row.rua ?? row.area_contagem),
+          quadrante: normalizeText(row.rua ?? row.quadrante ?? row.area ?? row.posicao ?? row.endereco),
+          area: normalizeAreaCode(row.rua ?? row.quadrante ?? row.area ?? row.posicao ?? row.endereco),
           sku: Number(row.sku ?? row.codsku ?? row.cod_sku),
-          paletes: Number(row.qtd_plt ?? row['qtd plt'] ?? row.paletes ?? row.pallets ?? row.quantidade),
+          paletes: Number(row.qtd_palete ?? row.qtd_plt ?? row['qtd plt'] ?? row.paletes ?? row.pallets ?? row.quantidade),
+          fracao: Number(row.fracao ?? row.fração ?? row['fracao (fardos no palete fracionado)']),
           tipoPlt: normalizeText(row.tipo_plt ?? row['tipo plt'] ?? row.tipo),
           lado: normalizeText(row.lado ?? row.side),
-          setor: normalizeText(row.setor ?? row.rua ?? row.area_contagem)
+          setor: normalizeText(row.setor ?? row.rua ?? row.area_contagem),
+          turno: parseTurno(row.turno)
         };
       })
       .filter((row) => Number.isFinite(row.sku) && row.paletes > 0)
@@ -1692,7 +1703,7 @@ async function importContagemFromPlanilha() {
       .sort((a, b) => normalizeAreaCode(a.area).localeCompare(normalizeAreaCode(b.area), 'pt-BR', { numeric: true }));
 
     if (!validRows.length) {
-      setStatus(el.contagemStatus, 'Nenhuma linha válida encontrada na planilha. Verifique colunas sku/deposito/quadrante/qtd plt/tipo plt.', 'error');
+      setStatus(el.contagemStatus, 'Nenhuma linha válida encontrada na planilha. Verifique colunas SKU/Galpão/Rua/Qtd Palete/Fração.', 'error');
       return;
     }
 
@@ -1714,6 +1725,7 @@ async function importContagemFromPlanilha() {
           ...createEmptyContagemEntry(),
           sku: String(row.sku),
           totalManual: total,
+          fardosFaltando: Number.isFinite(row.fracao) && row.fracao > 0 ? row.fracao : 0,
           confirmada: false,
           tipoPlt: row.tipoPlt,
           ...(normalizeText(scope) === 'ESTRUTURA' ? {} : estimateLayersFromTotal(total))
@@ -2296,8 +2308,8 @@ function mapImportRow(rawRow) {
     return Number.isFinite(n) ? n : NaN;
   };
 
-  const depositoRaw = normalizeText(row.deposito ?? row.deposito ?? row.setor ?? row.rua ?? row.local);
-  const quadranteRaw = String(row.quadrante ?? row.endereco ?? row.endereço ?? row.area ?? row.posicao ?? '').trim();
+  const depositoRaw = normalizeText(row.galpao ?? row['galpao'] ?? row.deposito ?? row.setor ?? row.local);
+  const quadranteRaw = String(row.rua ?? row.quadrante ?? row.endereco ?? row.endereço ?? row.area ?? row.posicao ?? '').trim();
   const quadrante = normalizeAreaCode(quadranteRaw);
   const ladoRaw = normalizeText(row.lado ?? row.side ?? '');
 
@@ -2365,7 +2377,7 @@ function mapImportRow(rawRow) {
     return normalizeAreaCode(q);
   };
 
-  const paletesRaw = row.paletes ?? row.pallets ?? row.quantidade ?? row.qtd_plt ?? row['qtd plt'] ?? row.qtdplt;
+  const paletesRaw = row.qtd_palete ?? row.paletes ?? row.pallets ?? row.quantidade ?? row.qtd_plt ?? row['qtd plt'] ?? row.qtdplt;
   const tipoRaw = row.tipo ?? row.produto_tipo ?? row.tipo_plt ?? row['tipo plt'];
   const skuRaw = row.sku ?? row.codsku ?? row['cod_sku'] ?? row['cód_sku'];
 
