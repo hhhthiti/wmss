@@ -206,7 +206,7 @@ document.body.classList.toggle('dark', darkModeEnabled);
 if (el.themeToggleBtn) el.themeToggleBtn.textContent = darkModeEnabled ? '☀️ Modo claro' : '🌙 Modo escuro';
 
 
-let currentUser = null;
+let currentUser = { id: 'LOCAL', role: 'master' };
 
 function canAccessRole(requiredRole) {
   if (!requiredRole) return true;
@@ -238,9 +238,8 @@ function toggleAuthMode(mode = 'login') {
 }
 
 function updateShellVisibility() {
-  const loggedIn = Boolean(currentUser);
-  el.authScreen?.classList.toggle('hidden', loggedIn);
-  el.appShell?.classList.toggle('hidden', !loggedIn);
+  el.authScreen?.classList.add('hidden');
+  el.appShell?.classList.remove('hidden');
 }
 
 async function authenticateUser(user, pass) {
@@ -266,98 +265,8 @@ async function authenticateUser(user, pass) {
 }
 
 function setupLogin() {
-  // Restaura sessão salva no localStorage
-  const savedSession = storageGetJSON('wmss_session', null);
-  if (savedSession && savedSession.id && savedSession.role) {
-    currentUser = savedSession;
-  }
-  toggleAuthMode('login');
-  updateShellVisibility();
-  el.showLoginBtn?.addEventListener('click', () => toggleAuthMode('login'));
-  el.showRegisterBtn?.addEventListener('click', () => toggleAuthMode('register'));
-
-  el.loginForm?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const user = normalizeText(el.loginUser?.value || '');
-    const pass = String(el.loginPass?.value || '');
-    if (!user || !pass) {
-      setStatus(el.loginStatus, 'Informe usuário e senha.', 'error');
-      return;
-    }
-
-    const auth = await authenticateUser(user, pass);
-    if (!auth) {
-      setStatus(el.loginStatus, 'Usuário/senha inválidos ou usuário inativo.', 'error');
-      return;
-    }
-
-    const perfil = normalizePerfilForUI(auth.perfil || 'COMUM');
-    currentUser = {
-      id: auth.usuario || user,
-      role: perfil === 'MASTER' ? 'master' : (perfil === 'ANALISTA' ? 'analyst' : 'common')
-    };
-    storageSet('wmss_session', JSON.stringify(currentUser));
-    const roleLabel = currentUser.role === 'master'
-      ? 'mestre'
-      : (currentUser.role === 'analyst' ? 'analista' : 'usuário');
-    setStatus(el.loginStatus, `Login ${roleLabel} ativo (${currentUser.id}).`, 'success');
-    el.loginForm?.reset();
-    el.registerForm?.reset();
-    updateShellVisibility();
-    applyRoleVisibility();
-    loadUsers().catch((err) => setStatus(el.userStatus, `Erro ao carregar usuários: ${err.message}`, 'error'));
-  });
-
-  el.registerForm?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    if (!supabaseClient) return setStatus(el.loginStatus, 'Banco não conectado.', 'error');
-    const usuario = normalizeText(el.registerUser?.value || '');
-    const nome = String(el.registerName?.value || '').trim();
-    const senha = String(el.registerPass?.value || '').trim();
-
-    if (!usuario || !senha) {
-      setStatus(el.loginStatus, 'Informe usuário e senha para registrar.', 'error');
-      return;
-    }
-
-    try {
-      let error = null;
-      for (const perfilValue of getDbPerfilCandidates('COMUM')) {
-        const payload = { usuario, nome, senha, perfil: perfilValue, ativo: true };
-        const result = await supabaseClient.from('wmss_users').insert(payload);
-        error = result.error || null;
-        if (!error) {
-          perfilWriteMode = perfilValue === 'COMUM' ? 'UPPER' : 'LOWER';
-          break;
-        }
-        if (!String(error.message || '').includes('wmss_users_perfil_check')) break;
-      }
-      if (error) throw error;
-      setStatus(el.loginStatus, 'Registro criado com perfil COMUM. Faça login para continuar.', 'success');
-      el.registerForm?.reset();
-      toggleAuthMode('login');
-    } catch (error) {
-      setStatus(el.loginStatus, `Erro ao registrar usuário: ${error.message}`, 'error');
-    }
-  });
-
-  el.logoutBtn?.addEventListener('click', () => {
-    currentUser = null;
-    storageSet('wmss_session', '');
-    updateShellVisibility();
-    toggleAuthMode('login');
-    setStatus(el.loginStatus, 'Sessão encerrada. Faça login para acessar as áreas.', '');
-    applyRoleVisibility();
-    cache.users = [];
-    renderUsersTable();
-  });
   applyRoleVisibility();
   updateShellVisibility();
-  if (currentUser) {
-    setStatus(el.loginStatus, '', '');
-  } else {
-    setStatus(el.loginStatus, 'Faça login para continuar.', '');
-  }
 }
 
 function setStatus(target, message, type = '') {
