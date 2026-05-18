@@ -325,9 +325,7 @@
           <form id="contagemForm" class="grid two-col">
             <label>Área de contagem
               <select id="contagemScope">
-                <option value="A">Rua A</option>
-                <option value="B">Rua B</option>
-                <option value="C">Rua C</option>
+                <option value="PRINCIPAL">Principal (A + B + C)</option>
                 <option value="ESTRUTURA">Estrutura</option>
                 <option value="CHAO">Chão</option>
                 <option value="TISSUE">Tissue</option>
@@ -336,11 +334,15 @@
                 <option value="LONIL">Lonil</option>
               </select>
             </label>
-            <label id="contagemSideLabel">Lado (Rua B / Tissue / Livro / Café / Lonil)
+            <label id="contagemSideLabel">Lado
               <select id="contagemSide">
-                <option value="ALL">Direito + Esquerdo</option>
-                <option value="D">Somente direito</option>
-                <option value="E">Somente esquerdo</option>
+                <option value="A">A</option>
+                <option value="AB_D">A + B direito</option>
+                <option value="B_ALL">B (direito + esquerdo)</option>
+                <option value="B_D">B (direito)</option>
+                <option value="B_E">B (esquerdo)</option>
+                <option value="C">C</option>
+                <option value="C_E">C + esquerdo</option>
               </select>
             </label>
             <label>Importar planilha para pré-preenchimento

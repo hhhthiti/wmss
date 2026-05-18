@@ -1367,19 +1367,52 @@ function expandRangeLabel(label) {
 
 function shouldShowContagemSide() {
   const scope = normalizeText(el.contagemScope?.value);
-  return ['B', 'TISSUE', 'TTD', 'CAFE', 'LONIL', 'CHAO'].includes(scope);
+  return ['PRINCIPAL', 'B', 'TISSUE', 'TTD', 'CAFE', 'LONIL', 'CHAO'].includes(scope);
+}
+
+function getContagemSideOptions(scope) {
+  const s = normalizeText(scope);
+  if (s === 'PRINCIPAL') {
+    return [
+      { value: 'A', label: 'A' },
+      { value: 'AB_D', label: 'A + B direito' },
+      { value: 'B_ALL', label: 'B (direito + esquerdo)' },
+      { value: 'B_D', label: 'B (direito)' },
+      { value: 'B_E', label: 'B (esquerdo)' },
+      { value: 'C', label: 'C' },
+      { value: 'C_E', label: 'C + esquerdo' }
+    ];
+  }
+  return [
+    { value: 'ALL', label: 'Direito + Esquerdo' },
+    { value: 'D', label: 'Somente direito' },
+    { value: 'E', label: 'Somente esquerdo' }
+  ];
 }
 
 function updateContagemSideVisibility() {
   if (!el.contagemSide) return;
+  const options = getContagemSideOptions(el.contagemScope?.value);
+  const current = el.contagemSide.value;
+  el.contagemSide.innerHTML = options.map((opt) => `<option value="${opt.value}">${opt.label}</option>`).join('');
+  el.contagemSide.value = options.some((opt) => opt.value === current) ? current : options[0].value;
   const visible = shouldShowContagemSide();
   const sideLabel = document.getElementById('contagemSideLabel');
   sideLabel?.classList.toggle('hidden', !visible);
-  if (!visible) el.contagemSide.value = 'ALL';
+  if (!visible) el.contagemSide.value = options[0]?.value || 'ALL';
 }
 
 function getContagemPositions(scope, side = 'ALL') {
   const s = normalizeText(scope);
+  if (s === 'PRINCIPAL') {
+    if (side === 'A') return getContagemPositions('A', 'ALL');
+    if (side === 'AB_D') return [...getContagemPositions('A', 'ALL'), ...getContagemPositions('B', 'D')];
+    if (side === 'B_D') return getContagemPositions('B', 'D');
+    if (side === 'B_E') return getContagemPositions('B', 'E');
+    if (side === 'C') return getContagemPositions('C', 'ALL');
+    if (side === 'C_E') return [...getContagemPositions('C', 'ALL'), ...getContagemPositions('B', 'E')];
+    return getContagemPositions('B', 'ALL');
+  }
   if (s === 'A') return Array.from({ length: 26 }, (_, i) => `A${String(i + 1).padStart(2, '0')}`);
   if (s === 'C') return Array.from({ length: 26 }, (_, i) => `C${String(i + 1).padStart(2, '0')}`);
   if (s === 'B') {
