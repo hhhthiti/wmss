@@ -129,32 +129,13 @@ Quando ativo, após ações de cadastro/edição, exclusão, importação e expe
 > Importante: por segurança do navegador, não é possível editar automaticamente o mesmo arquivo Excel já aberto no seu computador. O que o sistema faz é gerar uma nova versão atualizada da planilha.
 
 
-## Login de usuários (Supabase)
+## Login de usuários (Supabase Auth)
 
-Para cadastrar novos usuários da aplicação, execute também:
+O WMSS autentica usuários pelo Supabase Auth e mantém perfis sem senhas na tabela `wmss_profiles`. Não insira credenciais diretamente no banco. Novos acessos e redefinições de senha são provisionados pelo usuário MASTER através da Edge Function `wmss-admin-users`.
 
-- `supabase/wmss_users.sql`
+Para aplicar a migração com backup e provisionar o primeiro acesso mestre, siga [`SECURITY_MIGRATION.md`](SECURITY_MIGRATION.md). O script SQL está em `supabase/migrations/202611090001_secure_auth_and_rls.sql`. A migração remove a coluna de senha da tabela legada e fecha o acesso anônimo às tabelas do sistema.
 
-Esse script cria a tabela `public.wmss_users` com:
-
-- `usuario` (único),
-- `senha`,
-- `perfil` (`MASTER`/`COMUM`),
-- `ativo`.
-
-Depois de rodar o script, você pode inserir novos usuários assim:
-
-```sql
-insert into public.wmss_users (usuario, senha, nome, perfil, ativo)
-values ('12345678', 'minhasenha', 'Operador 1', 'COMUM', true)
-on conflict (usuario) do update
-set senha = excluded.senha,
-    nome = excluded.nome,
-    perfil = excluded.perfil,
-    ativo = excluded.ativo;
-```
-
-> Segurança: o login atual é simples (senha em texto) para operação rápida. Recomendado migrar para Supabase Auth ou hash de senha em produção.
+Senhas antigas não são importadas; cada pessoa precisa receber uma senha nova. Nunca publique a service-role key nem grave chaves de ativação no repositório.
 
 ## Integração de IA (AirLLM/OpenAI via Edge Function)
 
@@ -200,6 +181,6 @@ E guia de deploy em:
 Na aba **Cadastro** foi incluída a seção **Cadastro de usuários** (somente mestre), com:
 
 - criação/edição de usuário,
-- seleção de perfil (`COMUM`/`MASTER`),
+- seleção de perfil (`COMUM`/`ANALISTA`/`MASTER`),
 - ativação/desativação,
 - listagem de usuários já cadastrados.

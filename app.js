@@ -43,6 +43,10 @@ const el = {
   registerUser: document.getElementById('registerUser'),
   registerName: document.getElementById('registerName'),
   registerPass: document.getElementById('registerPass'),
+  bootstrapForm: document.getElementById('bootstrapForm'),
+  bootstrapUser: document.getElementById('bootstrapUser'),
+  bootstrapPass: document.getElementById('bootstrapPass'),
+  bootstrapSecret: document.getElementById('bootstrapSecret'),
   showLoginBtn: document.getElementById('showLoginBtn'),
   showRegisterBtn: document.getElementById('showRegisterBtn'),
   logoutBtn: document.getElementById('logoutBtn'),
@@ -243,105 +247,101 @@ function updateShellVisibility() {
   el.appShell?.classList.toggle('hidden', !loggedIn);
 }
 
-async function authenticateUser(user, pass) {
-  if (!user || !pass) return null;
+function usernameToEmail(username) {
+  return `${normalizeText(username).toLowerCase()}@wmss.invalid`;
+}
 
-  // Fallback local para não travar operação enquanto a tabela de usuários não é criada.
-  if (user === '30152962' && pass === '123') {
-    return { usuario: user, perfil: 'MASTER', ativo: true };
+function applyProfile(profile, authUser) {
+  const perfil = normalizePerfilForUI(profile?.perfil || 'COMUM');
+  currentUser = {
+    authUserId: authUser.id,
+    id: profile.usuario,
+    role: perfil === 'MASTER' ? 'master' : (perfil === 'ANALISTA' ? 'analyst' : 'common')
+  };
+  updateShellVisibility();
+  applyRoleVisibility();
+}
+
+async function restoreAuthSession() {
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error || !data?.session?.user) return;
+  try {
+    const { data: profile, error: profileError } = await supabaseClient
+      .from('wmss_profiles')
+      .select('auth_user_id, usuario, nome, perfil, ativo')
+      .eq('auth_user_id', data.session.user.id)
+      .maybeSingle();
+    if (profileError || !profile?.ativo) throw profileError || new Error('Usuário inativo ou sem perfil provisionado.');
+    applyProfile(profile, data.session.user);
+    await loadAll();
+  } catch (_) {
+    await supabaseClient.auth.signOut();
+    currentUser = null;
+    updateShellVisibility();
+    setStatus(el.loginStatus, 'Acesso indisponível. Solicite ao usuário mestre a redefinição do seu acesso.', 'error');
   }
-
-  if (!supabaseClient) return null;
-
-  const { data, error } = await supabaseClient
-    .from('wmss_users')
-    .select('usuario, perfil, ativo')
-    .eq('usuario', user)
-    .eq('senha', pass)
-    .eq('ativo', true)
-    .maybeSingle();
-
-  if (error || !data) return null;
-  return data;
 }
 
 function setupLogin() {
-  // Restaura sessão salva no localStorage
-  const savedSession = storageGetJSON('wmss_session', null);
-  if (savedSession && savedSession.id && savedSession.role) {
-    currentUser = savedSession;
-  }
+  // A sessão validada é mantida pelo Supabase Auth; valores antigos do localStorage não autorizam acesso.
+  storageSet('wmss_session', '');
   toggleAuthMode('login');
   updateShellVisibility();
   el.showLoginBtn?.addEventListener('click', () => toggleAuthMode('login'));
-  el.showRegisterBtn?.addEventListener('click', () => toggleAuthMode('register'));
 
   el.loginForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const user = normalizeText(el.loginUser?.value || '');
-    const pass = String(el.loginPass?.value || '');
-    if (!user || !pass) {
-      setStatus(el.loginStatus, 'Informe usuário e senha.', 'error');
-      return;
+    const usuario = normalizeText(el.loginUser?.value || '');
+    const senha = String(el.loginPass?.value || '');
+    if (!usuario || !senha) return setStatus(el.loginStatus, 'Informe usuário e senha.', 'error');
+    if (!supabaseClient) return setStatus(el.loginStatus, 'Banco indisponível no momento.', 'error');
+
+    const { data, error } = await supabaseClient.auth.signInWithPassword({
+      email: usernameToEmail(usuario),
+      password: senha
+    });
+    if (error || !data?.user) {
+      return setStatus(el.loginStatus, 'Usuário/senha inválidos ou acesso ainda não redefinido.', 'error');
     }
 
-    const auth = await authenticateUser(user, pass);
-    if (!auth) {
-      setStatus(el.loginStatus, 'Usuário/senha inválidos ou usuário inativo.', 'error');
-      return;
+    const { data: profile, error: profileError } = await supabaseClient
+      .from('wmss_profiles')
+      .select('auth_user_id, usuario, nome, perfil, ativo')
+      .eq('auth_user_id', data.user.id)
+      .maybeSingle();
+    if (profileError || !profile?.ativo) {
+      await supabaseClient.auth.signOut();
+      return setStatus(el.loginStatus, 'Acesso não provisionado ou inativo. Solicite ajuda ao usuário mestre.', 'error');
     }
 
-    const perfil = normalizePerfilForUI(auth.perfil || 'COMUM');
-    currentUser = {
-      id: auth.usuario || user,
-      role: perfil === 'MASTER' ? 'master' : (perfil === 'ANALISTA' ? 'analyst' : 'common')
-    };
-    storageSet('wmss_session', JSON.stringify(currentUser));
-    const roleLabel = currentUser.role === 'master'
-      ? 'mestre'
-      : (currentUser.role === 'analyst' ? 'analista' : 'usuário');
+    applyProfile(profile, data.user);
+    const roleLabel = currentUser.role === 'master' ? 'mestre' : (currentUser.role === 'analyst' ? 'analista' : 'usuário');
     setStatus(el.loginStatus, `Login ${roleLabel} ativo (${currentUser.id}).`, 'success');
     el.loginForm?.reset();
-    el.registerForm?.reset();
-    updateShellVisibility();
-    applyRoleVisibility();
-    loadUsers().catch((err) => setStatus(el.userStatus, `Erro ao carregar usuários: ${err.message}`, 'error'));
+    await loadAll();
   });
 
-  el.registerForm?.addEventListener('submit', async (event) => {
+  el.bootstrapForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    if (!supabaseClient) return setStatus(el.loginStatus, 'Banco não conectado.', 'error');
-    const usuario = normalizeText(el.registerUser?.value || '');
-    const nome = String(el.registerName?.value || '').trim();
-    const senha = String(el.registerPass?.value || '').trim();
-
-    if (!usuario || !senha) {
-      setStatus(el.loginStatus, 'Informe usuário e senha para registrar.', 'error');
-      return;
+    if (!supabaseClient) return setStatus(el.loginStatus, 'Banco indisponível no momento.', 'error');
+    const usuario = normalizeText(el.bootstrapUser?.value || '');
+    const senha = String(el.bootstrapPass?.value || '');
+    const secret = String(el.bootstrapSecret?.value || '');
+    if (!usuario || senha.length < 12 || !secret) {
+      return setStatus(el.loginStatus, 'Informe a matrícula, uma senha nova com pelo menos 12 caracteres e a chave temporária.', 'error');
     }
-
-    try {
-      let error = null;
-      for (const perfilValue of getDbPerfilCandidates('COMUM')) {
-        const payload = { usuario, nome, senha, perfil: perfilValue, ativo: true };
-        const result = await supabaseClient.from('wmss_users').insert(payload);
-        error = result.error || null;
-        if (!error) {
-          perfilWriteMode = perfilValue === 'COMUM' ? 'UPPER' : 'LOWER';
-          break;
-        }
-        if (!String(error.message || '').includes('wmss_users_perfil_check')) break;
-      }
-      if (error) throw error;
-      setStatus(el.loginStatus, 'Registro criado com perfil COMUM. Faça login para continuar.', 'success');
-      el.registerForm?.reset();
-      toggleAuthMode('login');
-    } catch (error) {
-      setStatus(el.loginStatus, `Erro ao registrar usuário: ${error.message}`, 'error');
+    const { data, error } = await supabaseClient.functions.invoke('wmss-admin-users', {
+      body: { action: 'bootstrap', usuario, senha, secret }
+    });
+    if (error || !data?.success) {
+      return setStatus(el.loginStatus, `Não foi possível ativar o acesso mestre: ${error?.message || data?.error || 'verifique a configuração temporária'}.`, 'error');
     }
+    el.bootstrapForm.reset();
+    setStatus(el.loginStatus, 'Acesso mestre criado. Entre com a nova senha escolhida.', 'success');
   });
 
-  el.logoutBtn?.addEventListener('click', () => {
+  el.logoutBtn?.addEventListener('click', async () => {
+    if (supabaseClient) await supabaseClient.auth.signOut();
     currentUser = null;
     storageSet('wmss_session', '');
     updateShellVisibility();
@@ -353,11 +353,7 @@ function setupLogin() {
   });
   applyRoleVisibility();
   updateShellVisibility();
-  if (currentUser) {
-    setStatus(el.loginStatus, '', '');
-  } else {
-    setStatus(el.loginStatus, 'Faça login para continuar.', '');
-  }
+  setStatus(el.loginStatus, 'Entre com sua nova senha do Supabase Auth.', '');
 }
 
 function setStatus(target, message, type = '') {
@@ -760,19 +756,31 @@ async function runAiAssist() {
 
 function renderUsersTable() {
   if (!el.usersTableBody) return;
-  el.usersTableBody.innerHTML = '';
+  el.usersTableBody.replaceChildren();
   cache.users.forEach((u) => {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${u.usuario}</td><td>${u.nome || ''}</td><td>${u.perfil}</td><td>${u.ativo ? 'SIM' : 'NÃO'}</td><td><button type="button" class="secondary" data-edit="${u.usuario}">Editar</button></td>`;
-    tr.querySelector('[data-edit]')?.addEventListener('click', () => {
+    const values = [u.usuario, u.nome || '', u.perfil, u.ativo ? 'SIM' : 'NÃO', u.authProvisioned ? 'Ativo' : 'Redefinir senha'];
+    values.forEach((value) => {
+      const td = document.createElement('td');
+      td.textContent = String(value ?? '');
+      tr.appendChild(td);
+    });
+    const actionCell = document.createElement('td');
+    const editButton = document.createElement('button');
+    editButton.type = 'button';
+    editButton.className = 'secondary';
+    editButton.textContent = 'Editar';
+    editButton.addEventListener('click', () => {
       if (!el.userForm) return;
       el.userForm.usuario.value = u.usuario || '';
       el.userForm.nome.value = u.nome || '';
       el.userForm.senha.value = '';
       el.userForm.perfil.value = normalizePerfilForUI(u.perfil || 'COMUM');
       el.userForm.ativo.checked = Boolean(u.ativo);
-      setStatus(el.userStatus, `Editando usuário ${u.usuario}. Preencha a senha somente se quiser alterá-la.`, '');
+      setStatus(el.userStatus, `Editando usuário ${u.usuario}. Deixe a senha em branco para manter; informe uma nova para redefinir.`, '');
     });
+    actionCell.appendChild(editButton);
+    tr.appendChild(actionCell);
     el.usersTableBody.appendChild(tr);
   });
 }
@@ -783,13 +791,11 @@ async function loadUsers() {
     renderUsersTable();
     return;
   }
-  const { data, error } = await supabaseClient
-    .from('wmss_users')
-    .select('usuario, nome, perfil, ativo')
-    .order('usuario', { ascending: true });
-  if (error) throw error;
-  cache.users = data ?? [];
-  perfilValuesFromDb = new Set((cache.users || []).map((u) => String(u?.perfil || '').trim()).filter(Boolean));
+  const { data, error } = await supabaseClient.functions.invoke('wmss-admin-users', {
+    body: { action: 'list' }
+  });
+  if (error || !data?.success) throw error || new Error(data?.error || 'Falha ao listar usuários.');
+  cache.users = data.users ?? [];
   renderUsersTable();
 }
 
@@ -801,51 +807,25 @@ async function handleUserSubmit(event) {
   const formData = new FormData(event.target);
   const usuario = normalizeText(formData.get('usuario'));
   const nome = String(formData.get('nome') || '').trim();
-  const senha = String(formData.get('senha') || '').trim();
+  const senha = String(formData.get('senha') || '');
   const perfil = normalizePerfilForUI(formData.get('perfil') || 'COMUM');
   const ativo = formData.get('ativo') === 'on';
-
   const isUpdate = cache.users.some((u) => normalizeText(u.usuario) === usuario);
-  if (!usuario || (!isUpdate && !senha)) return setStatus(el.userStatus, 'Informe usuário e senha para novo cadastro.', 'error');
+  if (!usuario || (!isUpdate && senha.length < 12) || (senha && senha.length < 12)) {
+    return setStatus(el.userStatus, 'Informe uma senha nova com pelo menos 12 caracteres para primeiro acesso ou redefinição.', 'error');
+  }
   if (!['MASTER', 'COMUM', 'ANALISTA'].includes(perfil)) return setStatus(el.userStatus, 'Perfil inválido.', 'error');
 
-  const baseCandidates = getDbPerfilCandidates(perfil);
-  if (!baseCandidates.length) {
-    return setStatus(el.userStatus, `Perfil ${perfil} não está habilitado na regra atual do banco.`, 'error');
-  }
-  const perfilCandidates = perfilWriteMode === 'LOWER'
-    ? [...baseCandidates.filter((v) => v === v.toLowerCase()), ...baseCandidates]
-    : (perfilWriteMode === 'UPPER'
-      ? [...baseCandidates.filter((v) => v === v.toUpperCase()), ...baseCandidates]
-      : baseCandidates);
-
   try {
-    let lastError = null;
-    for (const perfilValue of perfilCandidates) {
-      const payload = { usuario, nome, perfil: perfilValue, ativo };
-      if (senha) payload.senha = senha;
-      const { error } = await supabaseClient
-        .from('wmss_users')
-        .upsert(payload, { onConflict: 'usuario' });
-      if (!error) {
-        perfilWriteMode = perfilValue === perfilValue.toUpperCase() ? 'UPPER' : 'LOWER';
-        perfilValuesFromDb.add(perfilValue);
-        lastError = null;
-        break;
-      }
-      lastError = error;
-      if (!String(error.message || '').includes('wmss_users_perfil_check')) break;
-    }
-    if (lastError) throw lastError;
+    const { data, error } = await supabaseClient.functions.invoke('wmss-admin-users', {
+      body: { action: 'save', usuario, nome, senha: senha || undefined, perfil, ativo }
+    });
+    if (error || !data?.success) throw error || new Error(data?.error || 'Falha ao salvar usuário.');
     event.target.reset();
     if (event.target.ativo) event.target.ativo.checked = true;
     await loadUsers();
-    setStatus(el.userStatus, 'Usuário salvo com sucesso.', 'success');
+    setStatus(el.userStatus, senha ? 'Usuário salvo. Entregue a senha temporária por canal privado e peça a troca no primeiro acesso.' : 'Perfil atualizado.', 'success');
   } catch (error) {
-    if (String(error.message || '').includes('wmss_users_perfil_check')) {
-      setStatus(el.userStatus, `Erro ao salvar usuário: perfil não aceito pela regra do banco (${perfil}).`, 'error');
-      return;
-    }
     setStatus(el.userStatus, `Erro ao salvar usuário: ${error.message}`, 'error');
   }
 }
@@ -853,9 +833,11 @@ async function handleUserSubmit(event) {
 function createClient() {
   try {
     if (!window.supabase?.createClient) throw new Error('Biblioteca do Supabase indisponível no momento.');
-    supabaseClient = window.supabase.createClient(defaultConfig.url, defaultConfig.key);
-    setStatus(el.connectionStatus, 'Conectado ao Supabase.', 'success');
-    loadAll();
+    supabaseClient = window.supabase.createClient(defaultConfig.url, defaultConfig.key, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
+    });
+    setStatus(el.connectionStatus, 'Supabase Auth disponível.', 'success');
+    restoreAuthSession();
   } catch (error) {
     setStatus(el.connectionStatus, 'Falha de conexão com Supabase.', 'error');
     showFeedback(`Erro ao conectar no Supabase: ${error.message}`, 'error');

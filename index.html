@@ -15,24 +15,22 @@
       <div class="card auth-card">
         <h1>WMSS - Controle de Estoque</h1>
         <p class="helper-text">Acesse com seu usuário para entrar no sistema.</p>
-        <div class="actions">
-          <button id="showLoginBtn" type="button">Login</button>
-          <button id="showRegisterBtn" type="button" class="secondary">Registro</button>
-        </div>
-
         <form id="loginForm" class="grid form-grid">
-          <label>Usuário <input id="loginUser" placeholder="Ex.: 30152962" /></label>
-          <label>Senha <input id="loginPass" type="password" placeholder="Senha" /></label>
+          <label>Usuário <input id="loginUser" autocomplete="username" placeholder="Ex.: 30152962" required /></label>
+          <label>Senha <input id="loginPass" type="password" autocomplete="current-password" placeholder="Senha nova do Supabase Auth" required /></label>
           <div class="actions"><button type="submit">Entrar</button></div>
         </form>
 
-        <form id="registerForm" class="grid form-grid hidden">
-          <label>Usuário <input id="registerUser" placeholder="Ex.: 30200001" /></label>
-          <label>Nome <input id="registerName" placeholder="Seu nome" /></label>
-          <label>Senha <input id="registerPass" type="password" placeholder="Crie uma senha" /></label>
-          <div class="actions"><button type="submit">Registrar</button></div>
-          <p class="helper-text">Novos registros são criados como perfil COMUM.</p>
-        </form>
+        <details class="bootstrap-card">
+          <summary>Primeiro acesso: ativar usuário mestre</summary>
+          <p class="helper-text">Use uma única vez, depois da migração do banco. Escolha uma senha nova; a senha antiga não será reaproveitada.</p>
+          <form id="bootstrapForm" class="grid form-grid">
+            <label>Matrícula mestre <input id="bootstrapUser" autocomplete="username" required /></label>
+            <label>Nova senha <input id="bootstrapPass" type="password" autocomplete="new-password" minlength="12" required /></label>
+            <label>Chave temporária de ativação <input id="bootstrapSecret" type="password" autocomplete="off" required /></label>
+            <div class="actions"><button type="submit" class="secondary">Criar acesso mestre</button></div>
+          </form>
+        </details>
 
         <p id="loginStatus" class="status"></p>
       </div>
@@ -104,11 +102,11 @@
 
         <div class="card" id="userAdminCard">
           <h2>Cadastro de usuários</h2>
-          <p class="helper-text">Somente usuário mestre pode cadastrar/editar perfis.</p>
+          <p class="helper-text">Somente o mestre provisiona o acesso. Defina uma senha temporária nova na criação ou redefinição.</p>
           <form id="userForm" class="grid form-grid">
             <label>Usuário <input name="usuario" required placeholder="Ex.: 12345678" /></label>
             <label>Nome <input name="nome" placeholder="Ex.: Operador turno A" /></label>
-            <label>Senha <input name="senha" type="password" /></label>
+            <label>Senha temporária <input name="senha" type="password" minlength="12" autocomplete="new-password" /></label>
             <label>Perfil
               <select name="perfil" required>
                 <option value="COMUM">COMUM</option>
@@ -128,7 +126,7 @@
           <p id="userStatus" class="status"></p>
           <div class="table-wrapper">
             <table id="usersTable">
-              <thead><tr><th>Usuário</th><th>Nome</th><th>Perfil</th><th>Ativo</th><th>Ação</th></tr></thead>
+              <thead><tr><th>Usuário</th><th>Nome</th><th>Perfil</th><th>Ativo</th><th>Acesso Auth</th><th>Ação</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
