@@ -15,8 +15,16 @@ Deno.serve(async (request) => {
   if (request.method !== "POST") return json({ success: false, error: "Método não permitido." }, 405);
 
   const url = Deno.env.get("SUPABASE_URL");
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const readDefaultKey = (name: string, legacyName: string) => {
+    const legacy = Deno.env.get(legacyName);
+    if (legacy) return legacy;
+    try {
+      const keys = JSON.parse(Deno.env.get(name) || "{}");
+      return keys.default || Object.values(keys)[0] || null;
+    } catch { return null; }
+  };
+  const anonKey = readDefaultKey("SUPABASE_PUBLISHABLE_KEYS", "SUPABASE_ANON_KEY");
+  const serviceKey = readDefaultKey("SUPABASE_SECRET_KEYS", "SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !anonKey || !serviceKey) return json({ success: false, error: "Configuração incompleta." }, 500);
 
   const service = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
