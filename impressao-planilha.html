@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>WMSS • Impressão compacta de planilha</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
@@ -22,6 +23,7 @@
       .error { color: #b00020; }
       .success { color: #117a3a; }
       code { background: #eef3fa; padding: 0 .25rem; border-radius: 4px; }
+      select { padding: .5rem; border-radius: 8px; border: 1px solid #c8d3e0; }
     </style>
   </head>
   <body>
@@ -31,8 +33,38 @@
         <p class="muted">
           Página exclusiva por URL para reduzir gasto de folha. Use colunas <code>sku</code> e <code>quantidade/paletes</code>. O endereço pode vir como <code>endereco/área/quadrante</code> ou somente <code>lado</code> (direito/esquerdo) + <code>deposito</code> (lonil/tissue/ttd).
         </p>
-        <input id="arquivo" type="file" accept=".xlsx,.xls,.csv" />
         <div class="actions">
+          <label>Fonte
+            <select id="fonteDados">
+              <option value="sistema">Sistema (Consulta)</option>
+              <option value="arquivo">Arquivo (.xlsx/.csv)</option>
+            </select>
+          </label>
+          <label>Modo
+            <select id="modoView">
+              <option value="enderecos">Endereços por área</option>
+              <option value="resumo">Resumo de SKUs</option>
+              <option value="chao">Somente chão por área</option>
+              <option value="mapa">Mapa (lista por área/lado)</option>
+            </select>
+          </label>
+          <label>Área/Depósito
+            <select id="filtroArea">
+              <option value="ALL">Todos</option>
+              <option value="PRINCIPAL">Principal</option>
+              <option value="TISSUE">Tissue</option>
+              <option value="LONIL">Lonil</option>
+              <option value="TTD">TTD</option>
+              <option value="ESTRUTURA">Estrutura</option>
+              <option value="CHAO">Chão</option>
+            </select>
+          </label>
+        </div>
+        <div id="arquivoWrap">
+          <input id="arquivo" type="file" accept=".xlsx,.xls,.csv" />
+        </div>
+        <div class="actions">
+          <button id="carregarSistemaBtn" type="button">Carregar do sistema</button>
           <button id="gerarPdfBtn" disabled>Gerar PDF otimizado (A4)</button>
           <button id="limparBtn" class="secondary">Limpar</button>
         </div>
@@ -44,7 +76,7 @@
         <div class="muted" id="resumo">Nenhum arquivo carregado.</div>
         <table>
           <thead>
-            <tr><th>SKU</th><th>Endereço</th><th>Quantidade</th></tr>
+            <tr id="previewHead"><th>SKU</th><th>Endereço</th><th>Quantidade</th></tr>
           </thead>
           <tbody id="previewBody">
             <tr><td colspan="3">Sem dados.</td></tr>
@@ -55,15 +87,69 @@
 
     <script>
       const el = {
+        fonteDados: document.getElementById('fonteDados'),
+        arquivoWrap: document.getElementById('arquivoWrap'),
         arquivo: document.getElementById('arquivo'),
+        carregarSistemaBtn: document.getElementById('carregarSistemaBtn'),
         gerarPdfBtn: document.getElementById('gerarPdfBtn'),
         limparBtn: document.getElementById('limparBtn'),
         status: document.getElementById('status'),
         resumo: document.getElementById('resumo'),
-        previewBody: document.getElementById('previewBody')
+        previewBody: document.getElementById('previewBody'),
+        previewHead: document.getElementById('previewHead'),
+        modoView: document.getElementById('modoView'),
+        filtroArea: document.getElementById('filtroArea')
       };
 
+      const defaultConfig = {
+        url: 'https://qfjghplxbtogshfjkawx.supabase.co',
+        key: 'sb_publishable_rIcKdaflOvJ0DLTJDcOrxA_bpTGG2hA'
+      };
+
+      let supabaseClient = null;
       let registros = [];
+
+      function normalizeAreaCode(value) {
+        return String(value ?? '').toUpperCase().replace(/[-_\s]/g, '').trim();
+      }
+
+      function getAreaTipoFromEndereco(endereco) {
+        const endNorm = String(endereco || '').toUpperCase();
+        return endNorm.includes('CHAO') ? 'CHAO'
+          : (endNorm.startsWith('TISSUE') || endNorm.startsWith('TISSUE.')) ? 'TISSUE'
+          : (endNorm.startsWith('LONIL') || endNorm.startsWith('LONIL.')) ? 'LONIL'
+          : (endNorm.startsWith('TTD') || endNorm.startsWith('TTD.')) ? 'TTD'
+          : endNorm.startsWith('R') || endNorm.includes('ESTRUT') || endNorm.includes('TUNEL') ? 'ESTRUTURA'
+          : 'PRINCIPAL';
+      }
+
+      function mapSistemaRow(row) {
+        const endereco = normalizeAreaCode(row.area);
+        return {
+          sku: String(row.sku),
+          endereco,
+          quantidade: Number(row.paletes || 0),
+          areaTipo: getAreaTipoFromEndereco(endereco)
+        };
+      }
+
+      async function carregarDoSistema() {
+        try {
+          if (!window.supabase?.createClient) throw new Error('Supabase JS não carregado.');
+          if (!supabaseClient) supabaseClient = window.supabase.createClient(defaultConfig.url, defaultConfig.key);
+          const { data, error } = await supabaseClient
+            .from('estoque_area')
+            .select('area, sku, paletes')
+            .order('area', { ascending: true })
+            .order('sku', { ascending: true });
+          if (error) throw error;
+          registros = (data || []).map(mapSistemaRow).filter((r) => Number(r.quantidade) > 0);
+          renderPreview();
+          setStatus(`Consulta carregada do sistema (${registros.length} linha(s)).`, 'success');
+        } catch (err) {
+          setStatus(`Erro ao carregar do sistema: ${err.message}`, 'error');
+        }
+      }
 
       function normalizarChave(v) {
         return String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
@@ -85,7 +171,8 @@
         }
         const quantidade = Number(row.quantidade ?? row.paletes ?? row.qtd ?? row.qtd_plt ?? row['qtd plt']);
         if (!sku || !endereco || !Number.isFinite(quantidade) || quantidade <= 0) return null;
-        return { sku, endereco, quantidade };
+        const areaTipo = getAreaTipoFromEndereco(endereco);
+        return { sku, endereco, quantidade, areaTipo };
       }
 
       function setStatus(msg, type = '') {
@@ -93,26 +180,81 @@
         el.status.className = `status ${type}`.trim();
       }
 
+      function getRegistrosFiltrados() {
+        const area = String(el.filtroArea?.value || 'ALL').toUpperCase();
+        let base = [...registros];
+        if (area !== 'ALL') base = base.filter((r) => String(r.areaTipo || '').toUpperCase() === area);
+        if ((el.modoView?.value || '') === 'chao') base = base.filter((r) => String(r.areaTipo || '').toUpperCase() === 'CHAO' || String(r.endereco || '').toUpperCase().includes('CHAO'));
+        return base;
+      }
+
       function renderPreview() {
+        const modo = el.modoView?.value || 'enderecos';
+        const filtrados = getRegistrosFiltrados();
         el.previewBody.innerHTML = '';
-        if (!registros.length) {
+
+        if (!filtrados.length) {
+          el.previewHead.innerHTML = '<th>SKU</th><th>Endereço</th><th>Quantidade</th>';
           el.previewBody.innerHTML = '<tr><td colspan="3">Sem dados.</td></tr>';
           el.resumo.textContent = 'Nenhum arquivo carregado.';
           el.gerarPdfBtn.disabled = true;
           return;
         }
 
-        registros.slice(0, 40).forEach((r) => {
-          const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${r.sku}</td><td>${r.endereco}</td><td>${r.quantidade}</td>`;
-          el.previewBody.appendChild(tr);
-        });
-        if (registros.length > 40) {
-          const tr = document.createElement('tr');
-          tr.innerHTML = `<td colspan="3">... mais ${registros.length - 40} linha(s)</td>`;
-          el.previewBody.appendChild(tr);
+        if (modo === 'mapa') {
+          el.previewHead.innerHTML = '<th>Área/Depósito</th><th>Lado</th><th>Endereços</th>' ;
+          const grouped = {};
+          filtrados.forEach((r) => {
+            const a = String(r.areaTipo || 'PRINCIPAL');
+            const e = String(r.endereco || '').toUpperCase();
+            const lado = e.endsWith('D') ? '→ Direita' : (e.endsWith('E') ? '← Esquerda' : '—');
+            const k = `${a}|${lado}`;
+            if (!grouped[k]) grouped[k] = { area: a, lado, enderecos: [] };
+            grouped[k].enderecos.push(e);
+          });
+          const linhas = Object.values(grouped).sort((x,y)=>`${x.area}${x.lado}`.localeCompare(`${y.area}${y.lado}`));
+          linhas.forEach((r) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${r.area}</td><td>${r.lado}</td><td>${r.enderecos.slice(0, 12).join(', ')}${r.enderecos.length>12?' ...':''}</td>`;
+            el.previewBody.appendChild(tr);
+          });
+          el.resumo.textContent = `${linhas.length} bloco(s) de mapa no filtro.`;
+        } else if (modo === 'resumo') {
+          el.previewHead.innerHTML = '<th>SKU</th><th>Total Paletes</th><th>Áreas</th>';
+          const grouped = {};
+          filtrados.forEach((r) => {
+            const k = String(r.sku);
+            if (!grouped[k]) grouped[k] = { sku: r.sku, qtd: 0, areas: new Set() };
+            grouped[k].qtd += Number(r.quantidade || 0);
+            grouped[k].areas.add(r.areaTipo || 'PRINCIPAL');
+          });
+          const resumoRows = Object.values(grouped).sort((a, b) => Number(a.sku) - Number(b.sku));
+          resumoRows.slice(0, 80).forEach((r) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${r.sku}</td><td>${r.qtd}</td><td>${Array.from(r.areas).join(', ')}</td>`;
+            el.previewBody.appendChild(tr);
+          });
+          if (resumoRows.length > 80) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td colspan="3">... mais ${resumoRows.length - 80} linha(s)</td>`;
+            el.previewBody.appendChild(tr);
+          }
+          el.resumo.textContent = `${resumoRows.length} SKU(s) no resumo (${filtrados.length} linha(s) base).`;
+        } else {
+          el.previewHead.innerHTML = '<th>SKU</th><th>Endereço</th><th>Quantidade</th>';
+          filtrados.slice(0, 60).forEach((r) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${r.sku}</td><td>${r.endereco}</td><td>${r.quantidade}</td>`;
+            el.previewBody.appendChild(tr);
+          });
+          if (filtrados.length > 60) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td colspan="3">... mais ${filtrados.length - 60} linha(s)</td>`;
+            el.previewBody.appendChild(tr);
+          }
+          el.resumo.textContent = `${filtrados.length} linha(s) válidas no filtro atual.`;
         }
-        el.resumo.textContent = `${registros.length} linha(s) válidas extraídas.`;
+
         el.gerarPdfBtn.disabled = false;
       }
 
@@ -138,47 +280,63 @@
         if (!registros.length || !window.jspdf) return;
         const { jsPDF } = window.jspdf;
         const pdf = new jsPDF('portrait', 'mm', 'a4');
+        const modo = el.modoView?.value || 'enderecos';
+        const filtrados = getRegistrosFiltrados();
+        if (!filtrados.length) return;
 
-        // Grade compacta para aproveitar a folha: 2 colunas de etiquetas por página
-        const marginX = 8;
-        const marginY = 10;
-        const pageW = 210;
-        const pageH = 297;
-        const colGap = 6;
-        const colW = (pageW - marginX * 2 - colGap) / 2;
-        const rowH = 8;
-        const rowsPerCol = Math.floor((pageH - marginY * 2 - 8) / rowH);
-        const labelsPerPage = rowsPerCol * 2;
+        let linhas = [];
+        if (modo === 'mapa') {
+          const grouped = {};
+          filtrados.forEach((r) => {
+            const a = String(r.areaTipo || 'PRINCIPAL');
+            const e = String(r.endereco || '').toUpperCase();
+            const lado = e.endsWith('D') ? 'DIREITA' : (e.endsWith('E') ? 'ESQUERDA' : 'SEM LADO');
+            const k = `${a}|${lado}`;
+            grouped[k] = grouped[k] || [];
+            grouped[k].push(e);
+          });
+          linhas = Object.entries(grouped)
+            .sort(([a], [b]) => a.localeCompare(b, 'pt-BR', { numeric: true }))
+            .map(([k, arr]) => `${k} | ${arr.slice(0, 15).join(', ')}${arr.length > 15 ? ' ...' : ''}`);
+        } else if (modo === 'resumo') {
+          const grouped = {};
+          filtrados.forEach((r) => {
+            const k = String(r.sku);
+            if (!grouped[k]) grouped[k] = { sku: r.sku, qtd: 0 };
+            grouped[k].qtd += Number(r.quantidade || 0);
+          });
+          linhas = Object.values(grouped)
+            .sort((a, b) => Number(a.sku) - Number(b.sku))
+            .map((r) => `${r.sku} | TOTAL: ${r.qtd}`);
+        } else {
+          linhas = filtrados.map((r) => `${r.sku} | END: ${String(r.endereco).slice(0, 22)} | QTD: ${r.quantidade}`);
+        }
 
+        let y = 12;
         pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(11);
-        pdf.text('WMSS • Lista compacta para impressão', marginX, marginY - 2);
+        const titulo = modo === 'resumo' ? 'Resumo SKU' : (modo === 'mapa' ? 'Mapa por área/lado' : (modo === 'chao' ? 'Chão por área' : 'Endereços por área'));
+        pdf.text(`WMSS • ${titulo}`, 10, y);
+        y += 8;
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(9);
 
-        registros.forEach((item, i) => {
-          if (i > 0 && i % labelsPerPage === 0) {
+        linhas.forEach((line) => {
+          if (y > 285) {
             pdf.addPage();
-            pdf.setFont('helvetica', 'bold');
-            pdf.setFontSize(11);
-            pdf.text('WMSS • Lista compacta para impressão', marginX, marginY - 2);
+            y = 12;
           }
-
-          const indexInPage = i % labelsPerPage;
-          const col = indexInPage >= rowsPerCol ? 1 : 0;
-          const row = indexInPage % rowsPerCol;
-          const x = marginX + (col * (colW + colGap));
-          const y = marginY + 4 + (row * rowH);
-
-          pdf.setFont('helvetica', 'bold');
-          pdf.setFontSize(9);
-          pdf.text(String(item.sku), x, y);
-          pdf.setFont('helvetica', 'normal');
-          pdf.setFontSize(8);
-          pdf.text(`END: ${String(item.endereco).slice(0, 22)}`, x + 30, y);
-          pdf.text(`QTD: ${item.quantidade}`, x + colW - 28, y);
+          pdf.text(line, 10, y);
+          y += 5;
         });
 
-        pdf.save('wmss_impressao_compacta.pdf');
-        setStatus('PDF gerado com layout compacto para impressão.', 'success');
+        pdf.save(modo === 'resumo' ? 'wmss_resumo_skus.pdf' : 'wmss_enderecos_area.pdf');
+        setStatus('PDF gerado com sucesso.', 'success');
+      }
+
+      function toggleFonteUi() {
+        const fonte = el.fonteDados?.value || 'sistema';
+        if (el.arquivoWrap) el.arquivoWrap.style.display = fonte === 'arquivo' ? 'block' : 'none';
       }
 
       function limpar() {
@@ -189,8 +347,13 @@
       }
 
       el.arquivo.addEventListener('change', carregarArquivo);
+      el.carregarSistemaBtn?.addEventListener('click', carregarDoSistema);
+      el.fonteDados?.addEventListener('change', () => { toggleFonteUi(); renderPreview(); });
+      el.modoView?.addEventListener('change', renderPreview);
+      el.filtroArea?.addEventListener('change', renderPreview);
       el.gerarPdfBtn.addEventListener('click', gerarPdf);
       el.limparBtn.addEventListener('click', limpar);
+      toggleFonteUi();
     </script>
   </body>
 </html>

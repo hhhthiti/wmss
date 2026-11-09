@@ -25,11 +25,21 @@ Na aba **Cadastro** existe uma seção para upload de arquivo (`.xlsx`, `.xls`, 
 
 ### Colunas esperadas
 
+Formato 1 (direto):
+
 - `area`
 - `sku`
 - `tipo`
 - `paletes`
 - `acao` (opcional)
+
+Formato 2 (planilha operacional):
+
+- `sku`
+- `deposito` (Principal/Tissue/Lonil/TTD/Estrutura)
+- `quadrante` (ex.: A03, B02D, Direito/Esquerdo, Chão)
+- `qtd plt`
+- `tipo plt` (opcional; se ausente assume `PL2`)
 
 ### Regras
 
@@ -117,3 +127,60 @@ Quando ativo, após ações de cadastro/edição, exclusão, importação e expe
 - totais expedidos por SKU.
 
 > Importante: por segurança do navegador, não é possível editar automaticamente o mesmo arquivo Excel já aberto no seu computador. O que o sistema faz é gerar uma nova versão atualizada da planilha.
+
+
+## Login de usuários (Supabase Auth)
+
+O WMSS autentica usuários pelo Supabase Auth e mantém perfis sem senhas na tabela `wmss_profiles`. Não insira credenciais diretamente no banco. Novos acessos e redefinições de senha são provisionados pelo usuário MASTER através da Edge Function `wmss-admin-users`.
+
+Para aplicar a migração com backup e provisionar o primeiro acesso mestre, siga [`SECURITY_MIGRATION.md`](SECURITY_MIGRATION.md). O script SQL está em `supabase/migrations/202611090001_secure_auth_and_rls.sql`. A migração remove a coluna de senha da tabela legada e fecha o acesso anônimo às tabelas do sistema.
+
+Senhas antigas não são importadas; cada pessoa precisa receber uma senha nova. Nunca publique a service-role key nem grave chaves de ativação no repositório.
+
+## Integração de IA (AirLLM/OpenAI via Edge Function)
+
+A tela de **Planejamento** agora possui o botão **✨ Sugerir com IA**.
+
+Ela chama a função HTTP:
+
+- `POST /functions/v1/wmss-ai-assist`
+
+com payload:
+
+```json
+{
+  "prompt": "texto digitado pelo usuário",
+  "context": {
+    "capacidadePlanejamento": {"A":80,"BD":40,"BE":32,"C":48},
+    "ocupado": {"A":0,"BD":0,"BE":0,"C":0},
+    "ocupacaoSetores": {"principal":0,"tissue":0,"lonil":0,"ttd":0},
+    "topSkus": []
+  }
+}
+```
+
+### Próximo passo para ativar de verdade
+
+Publique uma Edge Function `wmss-ai-assist` no Supabase para conectar no provedor de LLM (AirLLM/OpenAI/etc).
+
+> Recomendado: manter chave do provedor **somente** no backend (Edge Function), nunca no browser.
+
+
+### Edge Function pronta no repositório
+
+Também foi adicionada a implementação pronta em:
+
+- `supabase/functions/wmss-ai-assist/index.ts`
+
+E guia de deploy em:
+
+- `supabase/functions/wmss-ai-assist/README.md`
+
+## Tela de cadastro de usuários
+
+Na aba **Cadastro** foi incluída a seção **Cadastro de usuários** (somente mestre), com:
+
+- criação/edição de usuário,
+- seleção de perfil (`COMUM`/`ANALISTA`/`MASTER`),
+- ativação/desativação,
+- listagem de usuários já cadastrados.

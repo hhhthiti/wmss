@@ -1,0 +1,2 @@
+[functions.wmss-admin-users]
+verify_jwt = false
