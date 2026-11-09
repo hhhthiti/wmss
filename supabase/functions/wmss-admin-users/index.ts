@@ -107,7 +107,7 @@ Deno.serve(async (request) => {
         if (error || !created.user) throw error || new Error("Falha ao criar usuário Auth.");
         authUserId = created.user.id;
       } else if (senha) {
-        const { error } = await service.auth.admin.updateUserById(authUserId, { password: senha, email_confirm: true });
+        const { error } = await service.auth.admin.updateUserById(authUserId, { password: senha });
         if (error) throw error;
       }
       const { error: legacyError } = await service.from("wmss_users").upsert({ usuario, nome, perfil, ativo }, { onConflict: "usuario" });
@@ -122,3 +122,4 @@ Deno.serve(async (request) => {
     return json({ success: false, error: "Falha ao processar a solicitação." }, 500);
   }
 });
+
